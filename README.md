@@ -2,9 +2,9 @@
 
                                                      (Описание на русском языке - ниже.)
 
-**Sorry for google-translate ¯\\\_(ツ)\_/¯**
+Sorry for google-translate ¯\\\_(ツ)\_/¯
 
-Universal multichannel weekly and / or daily programmable timer
+**Universal multichannel weekly and / or daily programmable timer.**
 
 Tested on ESP8266 in version ESP-01 and NodeMCU.
 
@@ -45,7 +45,8 @@ Rebooting via the web interface.
 With Multicast DNS (mDNS) available as host vt.local.
 
 # VersatileTimer
-Универсальный многоканальный недельный и/или суточный программируемый таймер 
+
+**Универсальный многоканальный недельный и/или суточный программируемый таймер.** 
 
 Протестирован на ESP8266 в исполнении ESP-01 и NodeMCU.
 
