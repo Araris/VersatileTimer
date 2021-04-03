@@ -140,10 +140,10 @@ secs = secs - ( mins * 60 );
 mins = mins - ( hours * 60 );
 hours = hours - ( days * 24 );
 content += (Language ? F("</b>&emsp;Время работы: <b>") : F("</b>&emsp;Uptime: <b>"));
-if ( days > 0 ) { content += String(days/10) + String(days%10) + (Language ? F("д ") : F("d ")); } 
-if ( hours > 0 ) { content += String(hours/10) + String(hours%10) + (Language ? F("ч ") : F("h ")); }
-if ( mins > 0 ) { content += String(mins/10) + String(mins%10) + (Language ? F("м ") : F("m ")); }
-content += String(secs/10)  + String(secs%10) + (Language ? F("с ") : F("s "));
+if ( days > 0 ) { content += String(days) + (Language ? F("д ") : F("d ")); } 
+if ( hours > 0 ) { content += String(hours) + (Language ? F("ч ") : F("h ")); }
+if ( mins > 0 ) { content += String(mins) + (Language ? F("м ") : F("m ")); }
+content += String(secs) + (Language ? F("с ") : F("s "));
 content += (Language ? F("</b>&emsp;Версия: <b>") : F("</b>&emsp;Version: <b>"));
 content += String(__DATE__);
 content += (Language ? F("</b>&emsp;Количество перезагрузок: <b>") : F("</b>&emsp;Number of reboots: <b>"));
@@ -275,13 +275,13 @@ for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
  content += (Language ? F(" value='10'>выключить</option></select>&nbsp;") : F(" value='10'>set OFF</option></select>&nbsp;"));
  // Hour, Minute, Second
  content += (Language ? F("Час") : F("Hour"));
- content += F("&nbsp;<input maxlength='2' name='h' size='2' type='text' value='");
+ content += F("&nbsp;<input name='h' type='number' min='0' max='23' value='");
  content += String(TaskList[taskNum][TASK_HOUR]);
  content += (Language ? F("' />&nbsp;Минута") : F("' />&nbsp;Minute"));
- content += F("&nbsp;<input maxlength='2' name='m' size='2' type='text' value='");
+ content += F("&nbsp;<input name='m' type='number' min='0' max='59' value='");
  content += String(TaskList[taskNum][TASK_MIN]);
  content += (Language ? F("' />&nbsp;Секунда") : F("' />&nbsp;Second"));
- content += F("&nbsp;<input maxlength='2' name='s' size='2' type='text' value='");
+ content += F("&nbsp;<input name='s' type='number' min='0' max='59' value='");
  content += String(TaskList[taskNum][TASK_SEC]) + F("' />&nbsp;");
  // Day(s)
  content += (Language ? F("День(дни)") : F("Day(s)"));
@@ -328,13 +328,15 @@ content += (Language ? F("Очистить список заданий' />") : F
 content += F("</form></p>"); 
 content += F("<hr /><form method='get' form action='/setnumberOfTasks'><p>");
 content += (Language ? F("Количество заданий (") : F("Number of tasks ("));
-content += String(TASKLIST_MIN_NUMBER) + F("...") + String(TASKLIST_MAX_NUMBER) + F("):&emsp;<input maxlength='3' name='nt' size='3' type='text' value='");
+content += String(TASKLIST_MIN_NUMBER) + F("...") + String(TASKLIST_MAX_NUMBER) 
+        + F("):&emsp;<input name='nt' type='number' min='") + String(TASKLIST_MIN_NUMBER) + F("' max='") + String(TASKLIST_MAX_NUMBER) + F("' value='");
 content += String(numberOfTasks) + F("' />&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить и перезагрузить") : F("Save and reboot"));
 content += F("'/></p></form>");
 content += F("<hr /><form method='get' form action='/setnumberOfChannels'><p>");
 content += (Language ? F("Количество каналов (") : F("Number of channels ("));
-content += String(CHANNELLIST_MIN_NUMBER) + F("...") + String(CHANNELLIST_MAX_NUMBER) + F("):&emsp;<input maxlength='2' name='nc' size='2' type='text' value='");
+content += String(CHANNELLIST_MIN_NUMBER) + F("...") + String(CHANNELLIST_MAX_NUMBER) 
+        + F("):&emsp;<input name='nc' type='number' min='") + String(CHANNELLIST_MIN_NUMBER) + F("' max='") + String(CHANNELLIST_MAX_NUMBER) + F("' value='");
 content += String(numberOfChannels) + F("' />&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить и перезагрузить") : F("Save and reboot"));
 content += F("'/></p></form>");
@@ -349,45 +351,22 @@ for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
  if ( numberOfChannels > 9 && (chNum + 1) <  10 ) { content += F("0"); }
  content += String(chNum + 1) + F(":</b>&nbsp;<select name='e");
  if ( chNum < 10 ) { content += F("0"); }
- content += String(chNum);
- content += F("' size='1'><option ");
- if ( ChannelList[chNum][CHANNEL_ENABLED] ) 
-  {
-  content += F("selected='selected' value='11'>");
-  content += (Language ? F("включен") : F("enabled"));
-  content += F("</option><option value='10'>");
-  content += (Language ? F("отключен") : F("disabled"));
-  content += F("</option></select>");
-  }
- else
-  {
-  content += F("value='11'>");
-  content += (Language ? F("включен") : F("enabled"));
-  content += F("</option><option selected='selected' value='10'>");
-  content += (Language ? F("отключен") : F("disabled"));
-  content += F("</option></select>");
-  }
- content += F("&nbsp;GPIO&nbsp;<input maxlength='2' name='r' size='2' type='text' value='");
+ content += String(chNum) + F("' size='1'><option ");
+ if ( ChannelList[chNum][CHANNEL_ENABLED] )
+      { content += (Language ? F("selected='selected' value='11'>включен</option><option value='10'>") : F("selected='selected' value='11'>enabled</option><option value='10'>")); }
+ else { content += (Language ? F("value='11'>включен</option><option selected='selected' value='10'>") : F("value='11'>enabled</option><option selected='selected' value='10'>")); }
+ content += (Language ? F("отключен") : F("disabled"));
+ content += F("</option></select>");
+ content += F("&nbsp;GPIO&nbsp;<input name='r' type='number' min='");
+ content += String(GPIO_MIN_NUMBER) + F("' max='") + String(GPIO_MAX_NUMBER) + F("' value='");
  content += String(ChannelList[chNum][CHANNEL_GPIO]) + F("' /> (") + NodeMCUpins[ChannelList[chNum][CHANNEL_GPIO]] + F(")&nbsp;");
  content += (Language ? F("Управление") : F("Controls"));
  content += F("&nbsp;<select name='i' size='1'><option ");
  if ( ChannelList[chNum][CHANNEL_INVERTED] ) 
-  {
-  content += F("selected='selected' value='11'>");
-  content += (Language ? F("инвертированное") : F("inverted"));
-  content += F("</option><option value='10'>");
-  content += (Language ? F("прямое") : F("noninverted"));
-  content += F("</option></select>");
-  }
- else
-  {
-  content += F("value='11'>");
-  content += (Language ? F("инвертированное") : F("inverted"));
-  content += F("</option><option selected='selected' value='10'>");
-  content += (Language ? F("прямое") : F("noninverted"));
-  content += F("</option></select>");
-  }
- content += F("&nbsp;<input type='submit' value='");
+      { content += (Language ? F("selected='selected' value='11'>инвертированное</option><option value='10'>") : F("selected='selected' value='11'>inverted</option><option value='10'>")); }
+ else { content += (Language ? F("value='11'>инвертированное</option><option selected='selected' value='10'>") : F("value='11'>inverted</option><option selected='selected' value='10'>")); }
+ content += (Language ? F("прямое") : F("noninverted"));
+ content += F("</option></select>&nbsp;<input type='submit' value='");
  content += (Language ? F("Сохранить' />") : F("Save' />"));
  int duplicateChannelNumber = find_duplicate_or_conflicting_channel(chNum);
  if ( duplicateChannelNumber >= 0 )
@@ -401,9 +380,7 @@ for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
  content += F("</p></form></font>");
  }
 content += (Language ? F("<i>Для NodeMCU GPIO может быть от ") : F("<i>For NodeMCU GPIO can be from "));
-content += String(GPIO_MIN_NUMBER);
-content += (Language ? F(" до ") : F(" to ")); 
-content += String(GPIO_MAX_NUMBER);
+content += String(GPIO_MIN_NUMBER) + (Language ? F(" до ") : F(" to ")) + String(GPIO_MAX_NUMBER);
 content += (Language ? F(", исключая 6,7,8 и 11</i>") : F(", exclude 6,7,8 and 11</i>"));
 content += F("<hr /><form method='get' form action='/setlanguage'><p>");
 content += (Language ? F("Язык интерфейса") : F("Interface language"));
@@ -414,7 +391,7 @@ content += F("&nbsp;<input type='submit' value='");
 content += (Language ? F("Сохранить' />") : F("Save' />"));
 content += F("<hr /><form method='get' form action='/setntpTimeZone'><p>");
 content += (Language ? F("Часовой пояс") : F("Time Zone"));
-content += F("(-12...12):&emsp;<input maxlength='3' name='tz' size='3' type='text' value='");
+content += F("(-12...12):&emsp;<input name='tz' type='number' min='-12' max='12' value='");
 content += String(ntpTimeZone) + F("' />&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить'/></p></form>") : F("Save'/></p></form>"));
 content += F("<hr /><form method='get' form action='/setlogin'><p>");
