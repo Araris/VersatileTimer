@@ -1,6 +1,6 @@
 # VersatileTimer
 
-_Sorry for google-translate )))_
+Sorry for google-translate ¯\_(ツ)_/¯
 
 Universal multichannel weekly and / or daily programmable timer
 
@@ -19,8 +19,8 @@ An arbitrary (1-100) number of tasks (timers), configured in the web interface. 
 Three channel control modes:
 
   - manual control only - task settings are ignored, after a power failure, the last channel state is restored;
-  - on tasks and manually - allows you to manually switch channels, but only before the next task occurs, or power is lost. After power failure - see mode below;
-  - only on tasks - after a power failure, the state is set in which the channels should be in accordance with the settings of the tasks for the current day (group of days) of the week and time of day;
+  - by tasks and manually - allows you to manually switch channels, but only before the next task occurs, or power is lost. After power failure - see mode below;
+  - only by tasks - after a power failure, the state is set in which the channels should be in accordance with the settings of the tasks for the current day (group of days) of the week and time of day;
 
 Language selection (English / Russian) in the web interface.
 
