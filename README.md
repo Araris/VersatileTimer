@@ -1,4 +1,48 @@
 # VersatileTimer
+
+_Sorry for google-translate )))_
+
+Universal multichannel weekly and / or daily programmable timer
+
+Tested on ESP8266 in version ESP-01 and NodeMCU.
+
+All management is via the web interface.
+
+The exact time receives from the Internet (NTP), after the first synchronization, the temporary loss of WiFi / Internet does not affect the work.
+
+**Device capabilities:**
+
+Arbitrary (1-20) number of control channels (on / off), configured in the web interface. For each channel, configurable on / off, GPIO, direct / inverse control.
+
+An arbitrary (1-100) number of tasks (timers), configured in the web interface. For each task, a channel, an action (on / off / task disabled), a condition by time of day and day, or a group of days of the week are configured. The accuracy of setting the condition in time is a second.
+
+Three channel control modes:
+
+  - manual control only - task settings are ignored, after a power failure, the last channel state is restored;
+  - on tasks and manually - allows you to manually switch channels, but only before the next task occurs, or power is lost. After power failure - see mode below;
+  - only on tasks - after a power failure, the state is set in which the channels should be in accordance with the settings of the tasks for the current day (group of days) of the week and time of day;
+
+Language selection (English / Russian) in the web interface.
+
+The login and password for authorization (admin and admin by default) are configured in the web interface (I refused https due to the slow rendering of the web interface and the lack of a special need).
+
+Indication of the number of tasks for the channel.
+
+Shows the currently active task for the channel.
+
+Indication of duplicate and conflicting tasks.
+
+Indication of duplicate channels.
+
+The time zone is configured in the web interface.
+
+Downloading firmware via web interface.
+
+Rebooting via the web interface.
+
+With Multicast DNS (mDNS) available as host vt.local.
+
+# VersatileTimer
 Универсальный многоканальный недельный и/или суточный программируемый таймер 
 
 Протестирован на ESP8266 в исполнении ESP-01 и NodeMCU.
