@@ -1,6 +1,8 @@
 # VersatileTimer
 
-**Sorry for google-translate ¯\\__(ツ)__/¯**
+Описание на русском языке - ниже.
+
+**Sorry for google-translate ¯\\\_(ツ)\_/¯**
 
 Universal multichannel weekly and / or daily programmable timer
 
