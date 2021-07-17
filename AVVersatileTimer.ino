@@ -21,9 +21,9 @@
 #define FIRST_RUN_SIGNATURE_EEPROM_ADDRESS         0 // int FIRST_RUN_SIGNATURE
 #define CHANNELS_CONTROLS_MODE_EEPROM_ADDRESS      3 // byte ChannelsControlsMode
 #define LANGUAGE_EEPROM_ADDRESS                    4 // boolean Language
-#define NTP_TIME_ZONE_EEPROM_ADDRESS               6 // int ntpTimeZone
 #define COUNTER_OF_REBOOTS_EEPROM_ADDRESS          8 // int counterOfReboots
 #define NUMBER_OF_TASKS_EEPROM_ADDRESS            10 // byte numberOfTasks
+#define NTP_TIME_ZONE_EEPROM_ADDRESS              11 // byte (int ntpTimeZone)
 #define NUMBER_OF_CHANNELS_EEPROM_ADDRESS         12 // byte numberOfChannels
 #define LOGIN_NAME_PASS_EEPROM_ADDRESS            16 // (16-26) String loginName from LOGIN_NAME_PASS_EEPROM_ADDRESS to LOGIN_NAME_PASS_EEPROM_ADDRESS + 10
                                                      // (27-39) String loginPass from LOGIN_NAME_PASS_EEPROM_ADDRESS + 11 to LOGIN_NAME_PASS_EEPROM_ADDRESS + 22
@@ -388,7 +388,7 @@ content += F(":&nbsp;<select name='lang' size='1'><option ");
 content += ( Language ? F("selected='selected' value='11'>Русский</option><option value='10'>English</option></select>")
                       : F("value='11'>Русский</option><option selected='selected' value='10'>English</option></select>"));
 content += F("&nbsp;<input type='submit' value='");
-content += (Language ? F("Сохранить' />") : F("Save' />"));
+content += (Language ? F("Сохранить' /></p></form>") : F("Save' /></p></form>"));
 content += F("<hr /><form method='get' form action='/setntpTimeZone'><p>");
 content += (Language ? F("Часовой пояс") : F("Time Zone"));
 content += F("(-12...12):&emsp;<input name='tz' type='number' min='-12' max='12' value='");
@@ -590,15 +590,14 @@ server.on("/setntpTimeZone", []()
  if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
  String buf = server.arg(0);
  int param = buf.toInt();
- if ( param >= -12 && param <= 12 ) 
-  { if ( ntpTimeZone != param ) 
-     {
-     ntpTimeZone = param; 
-     timeClient.setTimeOffset(ntpTimeZone * 3600);
-     EEPROMWriteInt(NTP_TIME_ZONE_EEPROM_ADDRESS, ntpTimeZone);
-     }
-  }  
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
+ if ( ntpTimeZone != param ) 
+  {
+  ntpTimeZone = param; 
+  timeClient.setTimeOffset(ntpTimeZone * 3600);
+  EEPROM.write(NTP_TIME_ZONE_EEPROM_ADDRESS, ntpTimeZone + 12);
+  EEPROM.commit();
+  }
+server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
  }); 
 server.on("/setlogin", []() 
  {
@@ -946,8 +945,9 @@ if ( ChannelsControlsMode != CHANNELS_CONTROLS_ONLY_MANUALLY
   && ChannelsControlsMode != CHANNELS_CONTROLS_ONLY_BY_TASKS ) { ChannelsControlsMode = CHANNELS_CONTROLS_MANUALLY_AND_BY_TASKS; }
 Language = EEPROM.read(LANGUAGE_EEPROM_ADDRESS);
 if ( Language != 0 && Language != 1 ) { Language = 0; }
-ntpTimeZone = EEPROMReadInt(NTP_TIME_ZONE_EEPROM_ADDRESS);
-if ( ntpTimeZone < -12 || ntpTimeZone > 12 ) { ntpTimeZone = 2; }
+ntpTimeZone = EEPROM.read(NTP_TIME_ZONE_EEPROM_ADDRESS);
+ntpTimeZone = ntpTimeZone - 12;
+if ( ntpTimeZone > 24 ) { ntpTimeZone = 2; }
 numberOfTasks = EEPROM.read(NUMBER_OF_TASKS_EEPROM_ADDRESS);
 if ( numberOfTasks < TASKLIST_MIN_NUMBER || numberOfTasks > TASKLIST_MAX_NUMBER ) { numberOfTasks = 5; }
 TaskList = new uint8_t*[numberOfTasks];
