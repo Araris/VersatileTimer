@@ -35,7 +35,6 @@
 #define CHANNELS_CONTROLS_ONLY_MANUALLY           10
 #define CHANNELS_CONTROLS_MANUALLY_AND_BY_TASKS   11
 #define CHANNELS_CONTROLS_ONLY_BY_TASKS           12
-#define GPIO_MIN_NUMBER                            0
 #define GPIO_MAX_NUMBER                           16
 #define CHANNELLIST_MIN_NUMBER                     1
 #define CHANNELLIST_MAX_NUMBER                    15
@@ -82,7 +81,7 @@ uint8_t** TaskList;
 byte numberOfChannels; // CHANNELLIST_MIN_NUMBER...CHANNELLIST_MAX_NUMBER
 uint8_t** ChannelList;
 // uint8_t ChannelList[numberOfChannels][CHANNEL_NUM_ELEMENTS]
-                                // 0 - GPIO_MIN_NUMBER...GPIO_MAX_NUMBER - GPIO
+                                // 0 - 0...GPIO_MAX_NUMBER - GPIO
                                 // 1 - 0...1 - channel controls noninverted/inverted
                                 // 2 - 0...1 - channel last saved state
                                 // 3 - 0...1 - channel enabled
@@ -357,8 +356,8 @@ for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
  else { content += (Language ? F("value='11'>включен</option><option selected='selected' value='10'>") : F("value='11'>enabled</option><option selected='selected' value='10'>")); }
  content += (Language ? F("отключен") : F("disabled"));
  content += F("</option></select>");
- content += F("&nbsp;GPIO&nbsp;<input name='r' type='number' min='");
- content += String(GPIO_MIN_NUMBER) + F("' max='") + String(GPIO_MAX_NUMBER) + F("' value='");
+ content += F("&nbsp;GPIO&nbsp;<input name='r' type='number' min='0' max='");
+ content += String(GPIO_MAX_NUMBER) + F("' value='");
  content += String(ChannelList[chNum][CHANNEL_GPIO]) + F("' /> (") + NodeMCUpins[ChannelList[chNum][CHANNEL_GPIO]] + F(")&nbsp;");
  content += (Language ? F("Управление") : F("Controls"));
  content += F("&nbsp;<select name='i' size='1'><option ");
@@ -379,8 +378,9 @@ for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
   }
  content += F("</p></form></font>");
  }
-content += (Language ? F("<i>Для NodeMCU GPIO может быть от ") : F("<i>For NodeMCU GPIO can be from "));
-content += String(GPIO_MIN_NUMBER) + (Language ? F(" до ") : F(" to ")) + String(GPIO_MAX_NUMBER);
+content += (Language ? F("<i>Для NodeMCU GPIO может быть от ") : F("<i>For NodeMCU GPIO can be from 0"));
+content += (Language ? F(" до ") : F(" to "));
+content += String(GPIO_MAX_NUMBER);
 content += (Language ? F(", исключая 6,7,8 и 11</i>") : F(", exclude 6,7,8 and 11</i>"));
 content += F("<hr /><form method='get' form action='/setlanguage'><p>");
 content += (Language ? F("Язык интерфейса") : F("Interface language"));
@@ -551,7 +551,7 @@ server.on("/setchannelparams", []()
   } 
  buf = server.arg(1);
  param = buf.toInt();
- if ( param >= GPIO_MIN_NUMBER && param <= GPIO_MAX_NUMBER && NodeMCUpins[param] != "N/A" )
+ if ( param >= 0 && param <= GPIO_MAX_NUMBER && NodeMCUpins[param] != "N/A" )
   { if ( ChannelList[chNum][CHANNEL_GPIO] != param ) 
      {
      ChannelList[chNum][CHANNEL_GPIO] = param; 
@@ -608,9 +608,9 @@ server.on("/setlogin", []()
  if ( qlogin.length() > 0 && qlogin.length() <= 10 && qpass1.length() > 0 && qpass1.length() <= 10 && oldpass.length() > 0 && oldpass.length() <= 10 
    && qpass1 == server.arg(2) && oldpass == loginPass )
   {
-  for (int i = LOGIN_NAME_PASS_EEPROM_ADDRESS; i <= (LOGIN_NAME_PASS_EEPROM_ADDRESS + 22); ++i) { EEPROM.write(i, 0); } // fill with 0
-  for (int i = 0; i < qlogin.length(); ++i) { EEPROM.write(i + LOGIN_NAME_PASS_EEPROM_ADDRESS, qlogin[i]); }
-  for (int i = 0; i < qpass1.length(); ++i) { EEPROM.write(i + LOGIN_NAME_PASS_EEPROM_ADDRESS + 11, qpass1[i]); }
+  for ( int i = LOGIN_NAME_PASS_EEPROM_ADDRESS; i <= (LOGIN_NAME_PASS_EEPROM_ADDRESS + 22); ++i ) { EEPROM.write(i, 0); } // fill with 0
+  for ( unsigned int i = 0; i < qlogin.length(); ++i ) { EEPROM.write(i + LOGIN_NAME_PASS_EEPROM_ADDRESS, qlogin[i]); }
+  for ( unsigned int i = 0; i < qpass1.length(); ++i ) { EEPROM.write(i + LOGIN_NAME_PASS_EEPROM_ADDRESS + 11, qpass1[i]); }
   EEPROM.commit();
   read_login_pass_from_EEPROM();
   server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
@@ -797,10 +797,10 @@ for ( taskNum = 0; taskNum < numberOfTasks; taskNum++ )
   { TaskListRAW[taskNum][task_element_num] = EEPROM.read(TASKLIST_EEPROM_ADDRESS + task_element_num + taskNum * TASK_NUM_ELEMENTS); }
  if ( TaskListRAW[taskNum][TASK_ACTION] != ACTION_NOACTION && TaskListRAW[taskNum][TASK_ACTION] != ACTION_TURN_OFF
    && TaskListRAW[taskNum][TASK_ACTION] != ACTION_TURN_ON ) { TaskListRAW[taskNum][TASK_ACTION] = ACTION_NOACTION; }
- if ( TaskListRAW[taskNum][TASK_HOUR] < 0 || TaskListRAW[taskNum][TASK_HOUR] > 23 ) { TaskListRAW[taskNum][TASK_HOUR] = 0; }
- if ( TaskListRAW[taskNum][TASK_MIN]  < 0 || TaskListRAW[taskNum][TASK_MIN] > 59 )  { TaskListRAW[taskNum][TASK_MIN] = 0; }
- if ( TaskListRAW[taskNum][TASK_SEC]  < 0 || TaskListRAW[taskNum][TASK_SEC] > 59 )  { TaskListRAW[taskNum][TASK_SEC] = 0; }
- if ( TaskListRAW[taskNum][TASK_DAY]  < 0 || TaskListRAW[taskNum][TASK_DAY] > 9 )   { TaskListRAW[taskNum][TASK_DAY] = 9; }
+ if ( TaskListRAW[taskNum][TASK_HOUR] > 23 ) { TaskListRAW[taskNum][TASK_HOUR] = 0; }
+ if ( TaskListRAW[taskNum][TASK_MIN] > 59 )  { TaskListRAW[taskNum][TASK_MIN] = 0; }
+ if ( TaskListRAW[taskNum][TASK_SEC] > 59 )  { TaskListRAW[taskNum][TASK_SEC] = 0; }
+ if ( TaskListRAW[taskNum][TASK_DAY] > 9 )   { TaskListRAW[taskNum][TASK_DAY] = 9; }
  if ( TaskListRAW[taskNum][TASK_CHANNEL] > numberOfChannels ) { TaskListRAW[taskNum][TASK_CHANNEL] = 0; }
  }
 // Sorting in enabled action, channel and ascending order of time
@@ -881,8 +881,7 @@ for ( chNum = 0; chNum < numberOfChannels; chNum++ )
  yield(); 
  for ( ch_element_num = 0; ch_element_num < CHANNEL_NUM_ELEMENTS; ch_element_num++ ) 
   { ChannelList[chNum][ch_element_num] = EEPROM.read(CHANNELLIST_EEPROM_ADDRESS + ch_element_num + chNum * CHANNEL_NUM_ELEMENTS); }
- if ( ChannelList[chNum][CHANNEL_GPIO] < GPIO_MIN_NUMBER || ChannelList[chNum][CHANNEL_GPIO] > GPIO_MAX_NUMBER 
-   || NodeMCUpins[ChannelList[chNum][CHANNEL_GPIO]] == "N/A" ) { ChannelList[chNum][CHANNEL_GPIO] = LED_BUILTIN; }
+ if ( ChannelList[chNum][CHANNEL_GPIO] > GPIO_MAX_NUMBER || NodeMCUpins[ChannelList[chNum][CHANNEL_GPIO]] == "N/A" ) { ChannelList[chNum][CHANNEL_GPIO] = LED_BUILTIN; }
  if ( ChannelList[chNum][CHANNEL_INVERTED] != 0  && ChannelList[chNum][CHANNEL_INVERTED] != 1 )  { ChannelList[chNum][CHANNEL_INVERTED] = 0; }
  if ( ChannelList[chNum][CHANNEL_LASTSTATE] != 0 && ChannelList[chNum][CHANNEL_LASTSTATE] != 1 ) { ChannelList[chNum][CHANNEL_LASTSTATE] = 0; }
  if ( ChannelList[chNum][CHANNEL_ENABLED] != 0 && ChannelList[chNum][CHANNEL_ENABLED] != 1 ) { ChannelList[chNum][CHANNEL_ENABLED] = 0; }
