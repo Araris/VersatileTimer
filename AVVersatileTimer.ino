@@ -244,7 +244,6 @@ for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
  content += (Language ? F("Задание ") : F("Task "));
  if ( numberOfTasks >  9 && (taskNum + 1) <  10 ) { content += F("0"); }
  if ( numberOfTasks > 99 && (taskNum + 1) < 100 ) { content += F("0"); }
-// content += String(taskNum + 1) + (TaskList[taskNum][TASK_ACTION] ? F(":</b>") : F(":")) + F("&nbsp;");
  content += String(taskNum + 1) + F(":</b>&nbsp;");
  // Channel
  content += (Language ? F("Канал") : F("Channel"));
@@ -384,17 +383,17 @@ content += String(GPIO_MAX_NUMBER);
 content += (Language ? F(", исключая 6,7,8 и 11</i>") : F(", exclude 6,7,8 and 11</i>"));
 content += F("<hr /><form method='get' form action='/setlanguage'><p>");
 content += (Language ? F("Язык интерфейса") : F("Interface language"));
-content += F(":&nbsp;<select name='lang' size='1'><option ");
+content += F(":&emsp;<select name='lang' size='1'><option ");
 content += ( Language ? F("selected='selected' value='11'>Русский</option><option value='10'>English</option></select>")
                       : F("value='11'>Русский</option><option selected='selected' value='10'>English</option></select>"));
-content += F("&nbsp;<input type='submit' value='");
+content += F("&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить' /></p></form>") : F("Save' /></p></form>"));
 content += F("<hr /><form method='get' form action='/setntpTimeZone'><p>");
 content += (Language ? F("Часовой пояс") : F("Time Zone"));
 content += F("(-12...12):&emsp;<input name='tz' type='number' min='-12' max='12' value='");
 content += String(ntpTimeZone) + F("' />&emsp;<input type='submit' value='");
-content += (Language ? F("Сохранить'/></p></form>") : F("Save'/></p></form>"));
-content += F("<hr /><form method='get' form action='/setlogin'><p>");
+content += (Language ? F("Сохранить и перезагрузить'") : F("Save and reboot'"));
+content += F(" /></p></form><hr /><form method='get' form action='/setlogin'><p>");
 content += (Language ? F("Имя авторизации") : F("Login name"));
 content += F(":&emsp;<input maxlength='10' name='ln' size='10' type='text' value='");
 content += loginName + F("' /></p><p>");
@@ -432,8 +431,8 @@ server.on("/settask", []()
  bool needSave = false;
  if ( server.args() != TASK_NUM_ELEMENTS ) { return; }
  buf = server.argName(0);
- buf = buf.substring(3);
- taskNumber = buf.toInt();
+ buf = buf.substring(1);
+ taskNumber = buf.toInt(); // task
  buf = server.arg(0); param = buf.toInt(); // channel
  if ( param >= 0 && param <= numberOfChannels ) { if ( TaskList[taskNumber][TASK_CHANNEL] != param ) { TaskList[taskNumber][TASK_CHANNEL] = param; needSave = true; } } 
  buf = server.arg(1); param = buf.toInt(); // action
@@ -447,6 +446,15 @@ server.on("/settask", []()
  if ( param >= 0 && param <= 59 ) { if ( TaskList[taskNumber][TASK_SEC] != param ) { TaskList[taskNumber][TASK_SEC] = param; needSave = true; } } 
  buf = server.arg(5); param = buf.toInt(); // day(s)
  if ( param >= 0 && param <= 9 )  { if ( TaskList[taskNumber][TASK_DAY] != param ) { TaskList[taskNumber][TASK_DAY] = param; needSave = true; } }
+ #ifdef DEBUG
+  Serial.print(F("Set task ")); Serial.println(taskNumber + 1);
+  Serial.print(F("Ch="));       Serial.print(TaskList[taskNumber][TASK_CHANNEL] + 1);
+  Serial.print(F("\tAction=")); Serial.print(TaskList[taskNumber][TASK_ACTION]); 
+  Serial.print(F("\tHour="));   Serial.print(TaskList[taskNumber][TASK_HOUR]);
+  Serial.print(F("\tMinute=")); Serial.print(TaskList[taskNumber][TASK_MIN]);
+  Serial.print(F("\tSecond=")); Serial.print(TaskList[taskNumber][TASK_SEC]);
+  Serial.print(F("\tDay(s)=")); Serial.println(TaskList[taskNumber][TASK_DAY]);
+ #endif 
  if ( needSave ) { save_tasks_to_EEPROM(); check_previous_tasks(); }  
  server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
  }); 
@@ -521,7 +529,7 @@ server.on("/setchannelstate", []()
  if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
  int chNum, param = 0;
  String buf = server.argName(0);
- buf = buf.substring(2);
+ buf = buf.substring(1);
  chNum = buf.toInt();
  buf = server.arg(0);
  if ( buf.indexOf("ON") > -1 || buf.indexOf("Включить") > -1 ) { param = 1; }
@@ -538,7 +546,7 @@ server.on("/setchannelparams", []()
  bool needSave = false;
  int chNum, param;
  String buf = server.argName(0);
- buf = buf.substring(2);
+ buf = buf.substring(1);
  chNum = buf.toInt();
  buf = server.arg(0);
  param = buf.toInt();
@@ -594,8 +602,11 @@ server.on("/setntpTimeZone", []()
   {
   ntpTimeZone = param; 
   timeClient.setTimeOffset(ntpTimeZone * 3600);
-  EEPROM.write(NTP_TIME_ZONE_EEPROM_ADDRESS, ntpTimeZone + 12);
-  EEPROM.commit();
+  EEPROM.write(NTP_TIME_ZONE_EEPROM_ADDRESS, ntpTimeZone + 12); EEPROM.commit();
+  server.send(200, "text/html; charset=utf-8", (Language ? F("<META http-equiv=\'refresh\' content=\'15;URL=/\'> Перезагрузка...") : F("<META http-equiv=\'refresh\' content=\'15;URL=/\'> Rebooting..."))); 
+  delay(500);
+  server.stop();
+  ESP.restart(); 
   }
 server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
  }); 
@@ -689,6 +700,7 @@ for ( int chNum = 0; chNum < numberOfChannels - 1; chNum++ )
  {
  yield(); 
  if ( chNum != findNUM
+   && ChannelList[findNUM][CHANNEL_ENABLED] 
    && ChannelList[chNum][CHANNEL_ENABLED] 
    && ChannelList[chNum][CHANNEL_GPIO] == ChannelList[findNUM][CHANNEL_GPIO] )
   {
@@ -784,17 +796,20 @@ if ( needSave ) { save_channellist_to_EEPROM(); }
 
 void read_and_sort_tasklist_from_EEPROM()
 {
-int taskNum, task_element_num;
+int taskNum, task_element_num, taskAddress;
 uint8_t TaskListRAW[numberOfTasks][TASK_NUM_ELEMENTS];
 uint8_t IndexArray[numberOfTasks];
 #ifdef DEBUG 
- Serial.println(F("Reading tasks from EEPROM"));
+ Serial.println(F("Reading tasks"));
 #endif
 for ( taskNum = 0; taskNum < numberOfTasks; taskNum++ )
  {
+ taskAddress = TASKLIST_EEPROM_ADDRESS + taskNum * TASK_NUM_ELEMENTS;
  yield(); 
  for ( task_element_num = 0; task_element_num < TASK_NUM_ELEMENTS; task_element_num++ ) 
-  { TaskListRAW[taskNum][task_element_num] = EEPROM.read(TASKLIST_EEPROM_ADDRESS + task_element_num + taskNum * TASK_NUM_ELEMENTS); }
+  {
+  TaskListRAW[taskNum][task_element_num] = EEPROM.read(taskAddress + task_element_num);
+  }
  if ( TaskListRAW[taskNum][TASK_ACTION] != ACTION_NOACTION && TaskListRAW[taskNum][TASK_ACTION] != ACTION_TURN_OFF
    && TaskListRAW[taskNum][TASK_ACTION] != ACTION_TURN_ON ) { TaskListRAW[taskNum][TASK_ACTION] = ACTION_NOACTION; }
  if ( TaskListRAW[taskNum][TASK_HOUR] > 23 ) { TaskListRAW[taskNum][TASK_HOUR] = 0; }
@@ -802,6 +817,16 @@ for ( taskNum = 0; taskNum < numberOfTasks; taskNum++ )
  if ( TaskListRAW[taskNum][TASK_SEC] > 59 )  { TaskListRAW[taskNum][TASK_SEC] = 0; }
  if ( TaskListRAW[taskNum][TASK_DAY] > 9 )   { TaskListRAW[taskNum][TASK_DAY] = 9; }
  if ( TaskListRAW[taskNum][TASK_CHANNEL] > numberOfChannels ) { TaskListRAW[taskNum][TASK_CHANNEL] = 0; }
+ #ifdef DEBUG
+  Serial.print(F("Addr="));     Serial.print(taskAddress);
+  Serial.print(F("\tTask="));   Serial.print(taskNum + 1);
+  Serial.print(F("\tCh="));     Serial.print(TaskListRAW[taskNum][TASK_CHANNEL] + 1);
+  Serial.print(F("\tAction=")); Serial.print(TaskListRAW[taskNum][TASK_ACTION]); 
+  Serial.print(F("\tHour="));   Serial.print(TaskListRAW[taskNum][TASK_HOUR]);
+  Serial.print(F("\tMinute=")); Serial.print(TaskListRAW[taskNum][TASK_MIN]);
+  Serial.print(F("\tSecond=")); Serial.print(TaskListRAW[taskNum][TASK_SEC]);
+  Serial.print(F("\tDay(s)=")); Serial.println(TaskListRAW[taskNum][TASK_DAY]);
+ #endif 
  }
 // Sorting in enabled action, channel and ascending order of time
 for ( taskNum = 0; taskNum < numberOfTasks; taskNum++ ) { yield(); IndexArray[taskNum] = taskNum; } 
@@ -854,17 +879,29 @@ for ( int taskNum = 0; taskNum < numberOfTasks; taskNum++ )
 
 void save_tasks_to_EEPROM()
 {
+int taskAddress;
 #ifdef DEBUG 
- Serial.println(F("Saving tasks to EEPROM"));
+ Serial.println(F("Saving tasks"));
 #endif
 for ( int taskNum = 0; taskNum < numberOfTasks; taskNum++ )
  {
+ taskAddress = TASKLIST_EEPROM_ADDRESS + taskNum * TASK_NUM_ELEMENTS;
  yield(); 
  for ( int task_element_num = 0; task_element_num < TASK_NUM_ELEMENTS; task_element_num++ )
   {
-  if ( TaskList[taskNum][task_element_num] != EEPROM.read(TASKLIST_EEPROM_ADDRESS + task_element_num + taskNum * TASK_NUM_ELEMENTS) )
-   { EEPROM.write(TASKLIST_EEPROM_ADDRESS + task_element_num + taskNum * TASK_NUM_ELEMENTS, TaskList[taskNum][task_element_num]); }
+  if ( TaskList[taskNum][task_element_num] != EEPROM.read(taskAddress + task_element_num) )
+   { EEPROM.write(taskAddress + task_element_num, TaskList[taskNum][task_element_num]); }
   }
+ #ifdef DEBUG
+  Serial.print(F("Addr="));     Serial.print(taskAddress);
+  Serial.print(F("\tTask="));   Serial.print(taskNum + 1);
+  Serial.print(F("\tCh="));     Serial.print(TaskList[taskNum][TASK_CHANNEL] + 1);
+  Serial.print(F("\tAction=")); Serial.print(TaskList[taskNum][TASK_ACTION]); 
+  Serial.print(F("\tHour="));   Serial.print(TaskList[taskNum][TASK_HOUR]);
+  Serial.print(F("\tMinute=")); Serial.print(TaskList[taskNum][TASK_MIN]);
+  Serial.print(F("\tSecond=")); Serial.print(TaskList[taskNum][TASK_SEC]);
+  Serial.print(F("\tDay(s)=")); Serial.println(TaskList[taskNum][TASK_DAY]);
+ #endif 
  }
 EEPROM.commit();
 read_and_sort_tasklist_from_EEPROM();
@@ -874,7 +911,7 @@ void read_channellist_from_EEPROM_and_switch_channels()
 {
 int chNum, ch_element_num;
 #ifdef DEBUG 
- Serial.println(F("Reading channels from EEPROM"));
+ Serial.println(F("Reading channels"));
 #endif
 for ( chNum = 0; chNum < numberOfChannels; chNum++ )
  {
@@ -894,7 +931,7 @@ void save_channellist_to_EEPROM()
 {
 int chNum, ch_element_num;
 #ifdef DEBUG 
- Serial.println(F("Saving channels to EEPROM"));
+ Serial.println(F("Saving channels"));
 #endif
 for ( chNum = 0; chNum < numberOfChannels; chNum++ )
  {
