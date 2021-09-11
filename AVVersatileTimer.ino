@@ -88,12 +88,14 @@ uint8_t** ChannelList;
 byte ActiveNowTasksList[CHANNELLIST_MAX_NUMBER];  
 byte NumEnabledTasks[CHANNELLIST_MAX_NUMBER];                         
 int counterOfReboots = 0; 
-int ntpTimeZone = 0;      // -12...12
-boolean Language = false; // false - English, true - Russian
-int curTimeHour = 0;      // 0...23
-int curTimeMin = 0;       // 0...59
-int curTimeSec = 0;       // 0...59
-int curDayOfWeek = 0;     // 0 - Sunday, 1...5 - Monday...Friday, 6 - Saturday
+int ntpTimeZone = 0;            // -12...12
+boolean Language = false;       // false - English, true - Russian
+#define EPOCHTIMEMAXDIFF 600UL  // seconds
+unsigned long curEpochTime = 0; // time in seconds since Jan. 1, 1970
+int curTimeHour = 0;            // 0...23
+int curTimeMin = 0;             // 0...59
+int curTimeSec = 0;             // 0...59
+int curDayOfWeek = 0;           // 0 - Sunday, 1...5 - Monday...Friday, 6 - Saturday
 int previousSecond = 0;
 bool statusWiFi = false;
 bool timeSyncOK = false;
@@ -1074,17 +1076,22 @@ server.handleClient();
 if ( statusWiFi ) { timeSyncOK = timeClient.update(); } else { timeSyncOK = false; }
 if ( timeSyncOK )
  {
- curTimeHour = timeClient.getHours();
- curTimeMin = timeClient.getMinutes();
- curTimeSec = timeClient.getSeconds();
- curDayOfWeek = timeClient.getDay(); // 0 - Sunday, 1...5 - Monday...Friday, 6 - Saturday
+ unsigned long difference = 0;
+ if ( timeSyncInitially )
+  {
+  difference = ( curEpochTime > timeClient.getEpochTime() ? (curEpochTime - timeClient.getEpochTime()) 
+                                                          : (timeClient.getEpochTime() - curEpochTime) );
+  }
+ if ( difference < EPOCHTIMEMAXDIFF ) // check the correctness of the received time relative to the set
+  { 
+  curEpochTime = timeClient.getEpochTime();  
+  curTimeHour = timeClient.getHours();
+  curTimeMin = timeClient.getMinutes();
+  curTimeSec = timeClient.getSeconds();
+  curDayOfWeek = timeClient.getDay(); // 0 - Sunday, 1...5 - Monday...Friday, 6 - Saturday
+  if ( !timeSyncInitially ) { check_previous_tasks(); timeSyncInitially = true; }
+  }
  } 
-//
-if ( timeSyncOK != timeSyncInitially && timeSyncOK )
- {
- check_previous_tasks();
- timeSyncInitially = true;
- }
 //
 if ( millis() - everySecondTimer > 1000 )
  {
@@ -1097,6 +1104,7 @@ if ( millis() - everySecondTimer > 1000 )
   while ( setClockelapsedMillis > 999 )
    {
    curTimeSec++;
+   curEpochTime++;
    if ( curTimeSec > 59 ) { curTimeMin++;  curTimeSec = 0; }
    if ( curTimeMin > 59 ) { curTimeHour++; curTimeMin = 0; }
    if ( curTimeHour > 23 ) 
