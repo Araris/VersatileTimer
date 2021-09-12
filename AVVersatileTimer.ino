@@ -63,7 +63,7 @@ const String namesOfDaysR[] = {"Воскресенье","Понедельник"
 ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0);
+NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000UL);
 //
 String loginName; // default "admin"
 String loginPass; // default "admin"
@@ -90,6 +90,9 @@ byte NumEnabledTasks[CHANNELLIST_MAX_NUMBER];
 int counterOfReboots = 0; 
 int ntpTimeZone = 0;            // -12...12
 boolean Language = false;       // false - English, true - Russian
+#define NTPUPDATEINTERVAL 1800000UL
+bool timeSyncOK = false;
+bool timeSyncInitially = false;
 #define EPOCHTIMEMAXDIFF 600UL  // seconds
 unsigned long curEpochTime = 0; // time in seconds since Jan. 1, 1970
 int curTimeHour = 0;            // 0...23
@@ -98,8 +101,6 @@ int curTimeSec = 0;             // 0...59
 int curDayOfWeek = 0;           // 0 - Sunday, 1...5 - Monday...Friday, 6 - Saturday
 int previousSecond = 0;
 bool statusWiFi = false;
-bool timeSyncOK = false;
-bool timeSyncInitially = false;
 unsigned long everySecondTimer = 0;
 unsigned long setClockcurrentMillis, setClockpreviousMillis, setClockelapsedMillis; 
                                
@@ -1085,11 +1086,16 @@ if ( timeSyncOK )
  if ( difference < EPOCHTIMEMAXDIFF ) // check the correctness of the received time relative to the set
   { 
   curEpochTime = timeClient.getEpochTime();  
-  curTimeHour = timeClient.getHours();
-  curTimeMin = timeClient.getMinutes();
-  curTimeSec = timeClient.getSeconds();
+  curTimeHour  = timeClient.getHours();
+  curTimeMin   = timeClient.getMinutes();
+  curTimeSec   = timeClient.getSeconds();
   curDayOfWeek = timeClient.getDay(); // 0 - Sunday, 1...5 - Monday...Friday, 6 - Saturday
-  if ( !timeSyncInitially ) { check_previous_tasks(); timeSyncInitially = true; }
+  if ( !timeSyncInitially ) 
+   {
+   check_previous_tasks(); 
+   timeClient.setUpdateInterval(NTPUPDATEINTERVAL);
+   timeSyncInitially = true;
+   }
   }
  } 
 //
