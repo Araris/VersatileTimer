@@ -130,7 +130,15 @@ void drawHomePage()
 byte curChNum;
 bool curTaskEnabled;
 String content = F("<link rel='shortcut icon' href='data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAQAQAAAAAAAAAAAAAAAAAAAAAAADCt6pgwrep/cK4qv/CuKr/wriq/8K4qv/CuKr/wriq/8K4qv/CuKr/wriq/8K4qv/CuKr/wriq/8K3qf3DuaxiwrmqisK4qv/CuKr/wriq/8K4qv/CuKr/vrSm/7WrnP+1q5z/vrSm/8K4qv/CuKr/wriq/8K4qv/CuKr/w7ipjMK5qorCuKr/wriq/8K4qv+zqZr/kYd4/5CHev+ln5T/pZ+U/5CHev+Rh3j/s6ma/8K4qv/CuKr/wriq/8O4qYzCuaqKwriq/8K4qv+jmYv/lo6C/9/d2f//////t7Wz/7e1s///////393Z/5aOgv+jmYv/wriq/8K4qv/DuKmMwrmqisK4qv+qoJH/npaL/6Cem//8/Pv//////9/f3v/f397///////z8+/+gnpv/npaL/6qgkf/CuKr/w7ipjMK5qoq/tab/i4Jz//Py8P+fnZr/7ezs///////////////////////t7Ov/n52a//Py8P+LgnP/v7Wm/8O4qYzCuaqKqZ+R/7awqP//////////////////////////////////////////////////////trCo/6mfkf/DuKmMwrmqipqQgv/X1M///////////////////////////////////////////////////////9fUz/+akIL/w7ipjMK5qoqWjH3/tbKu/1tYU///////+fj+/7ev8v9oVuP/xb70/////////////////1tYU/+1sq7/lox9/8K5q4vCt6t5m5GD/9XSzf/9/f7/npPt/1xI4f+RhOv/4d75////////////////////////////1dLN/5uRg//Ct6t5wrqrQ6uhk/+xq6H//fz+/7mx8v/z8v3//////////////////////////////////////7Grof+roZP/wrqrQ7+/vwS/tqfiioFy/+3s6f+IhoL/6urp///////////////////////q6un/iIaC/+3s6f+KgXL/v7an4r+/vwQAAAAAw7iqXa+llv+WjoL/sa+s//7+/v//////1dTT/9XU0////////v7+/7GvrP+WjoL/r6WW/8O4ql0AAAAAAAAAAAAAAADDuauYqqCS/4+Gef/Rzsn/+/v7/8HAvv/BwL7/+/v7/9HOyf+Phnn/qqCS/8O5q5gAAAAAAAAAAAAAAAAAAAAAgICAAsG3qYC5rqD6mY+A/4l/cf+Xj4P/l4+D/4l/cf+Zj4D/ua6g+sG3qYCAgIACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw7WoJsO5q5HBuKrXvLKk+byypPnBuKrXw7mrkcO1qCYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==' />");
-content += F("<html><body style='background: #87CEFA'><span style='font-size:22pt'>");
+content += F("<html><style>");
+content += F(".dac{width:100%;text-align:center}");
+content += F(".subdiv{width:600px;padding-left: 4px;}");
+content += F(".maindiv,.subdiv{margin-left:auto;margin-right:auto;}");
+content += F(".maindiv{padding:6px;width:900px;border: 1px grey solid;}");
+content += F("input[type=number]{width:38px;text-align: right;}");
+content += F("hr {border:none; background:grey; height:1px;}");
+content += F("</style>");
+content += F("<body style='background: #87CEFA'><div class='maindiv'><div class='dac'><span style='font-size:22pt'>");
 content += (Language ? F("Универсальный программируемый таймер</span><p>Текущее время: <b>") : F("VERSATILE TIMER</span><p>Time: <b>"));
 content += String(curTimeHour) + F(":")  + ( curTimeMin < 10 ? "0" : "" ) + String(curTimeMin) + F(":") + ( curTimeSec < 10 ? "0" : "" ) + String(curTimeSec) + F("</b>,&nbsp;<b>");
 content += (Language ? namesOfDaysR[curDayOfWeek] : namesOfDaysE[curDayOfWeek]);
@@ -150,44 +158,57 @@ content += (Language ? F("</b>&emsp;Версия: <b>") : F("</b>&emsp;Version: 
 content += String(__DATE__);
 content += (Language ? F("</b>&emsp;Количество перезагрузок: <b>") : F("</b>&emsp;Number of reboots: <b>"));
 content += String(counterOfReboots);
-content += F("</b></p><hr />");
+content += F("</b></p></div><hr>");
 server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 server.sendHeader("Pragma", "no-cache");
 server.sendHeader("Expires", "-1");
 server.setContentLength(CONTENT_LENGTH_UNKNOWN);
 server.send(200, "text/html; charset=utf-8", "");
 server.sendContent(content); content = "";
+content += (Language ? F("<center><b>Состояние</center></b>") : F("<center><b>Status</center></b>"));
+boolean isEnabledChannels = false;
+for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
+ { if ( ChannelList[chNum][CHANNEL_ENABLED] ) { isEnabledChannels = true; break; } }
+if ( !isEnabledChannels )
+ {
+ content += F("<br><font color='red'><b>");
+ content += (Language ? F("Нет доступных каналов") : F("No channels available"));
+ content += F("</b></font><br><br>");
+ }
 for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
  {
  yield(); 
- if ( ChannelsControlsMode != CHANNELS_CONTROLS_ONLY_BY_TASKS || !ChannelList[chNum][CHANNEL_ENABLED] )
-  { content += F("<form method='get' form action='/setchannelstate'>"); }
- content += ( ChannelList[chNum][CHANNEL_ENABLED] ? F("<font color='black'><b>") : F("<font color='dimgrey'>") );
- content += (Language ? F("<p>Канал ") : F("<p>Channel "));
+ if ( !ChannelList[chNum][CHANNEL_ENABLED] ) { continue; }
+ if ( ChannelsControlsMode != CHANNELS_CONTROLS_ONLY_BY_TASKS ) { content += F("<form method='get' form action='/setchannelstate'>"); }
+ content += (Language ? F("<p>Канал <b>") : F("<p>Channel <b>"));
+ if ( numberOfChannels > 9 && (chNum + 1) <  10 ) { content += F("&nbsp;&nbsp;"); }
  content += String(chNum + 1);
  content += (Language ? F(" </b><span style='color: ") : F(" </b>is <span style='color: "));
  if ( Language ) { content += ( ChannelList[chNum][CHANNEL_LASTSTATE] ? F("green; '><b>ВКЛЮЧЕН</b></span>") : F("red; '><b>ВЫКЛЮЧЕН</b></span>") ); }
             else { content += ( ChannelList[chNum][CHANNEL_LASTSTATE] ? F("green; '><b>ON</b></span>") : F("red; '><b>OFF</b></span>") ); }
- if ( ChannelsControlsMode != CHANNELS_CONTROLS_ONLY_BY_TASKS || !ChannelList[chNum][CHANNEL_ENABLED] )
+ if ( ChannelList[chNum][CHANNEL_LASTSTATE] ) { content += F("&nbsp;&nbsp;"); }
+ if ( ChannelsControlsMode != CHANNELS_CONTROLS_ONLY_BY_TASKS )
   {
   content += F("&emsp;<input name='s");   
   if ( chNum < 10 ) { content += F("0"); }
   content += String(chNum) + F("' type='submit' value='");   
   if ( Language ) { content += ( ChannelList[chNum][CHANNEL_LASTSTATE] ? F(" Выключить '/>") : F(" Включить '/>") ); }
-             else { content += ( ChannelList[chNum][CHANNEL_LASTSTATE] ? F(" Turn OFF '/>") : F(" Turn ON '/>") ); }
-  if ( ChannelsControlsMode != CHANNELS_CONTROLS_ONLY_MANUALLY && ChannelList[chNum][CHANNEL_ENABLED] )
+             else { content += ( ChannelList[chNum][CHANNEL_LASTSTATE] ? F(" Set OFF '/>") : F(" Turn ON '/>") ); }
+  if ( ChannelsControlsMode != CHANNELS_CONTROLS_ONLY_MANUALLY )
    { content += F("<font color='darkblue'>&emsp;"); 
      content += (Language ? F("количество заданий: ") : F("number of tasks: "));
      content += String(NumEnabledTasks[chNum]); }
   content += F("</form>");
   }
- else if ( ChannelList[chNum][CHANNEL_ENABLED] ) 
-       { content += F("<font color='darkblue'>&emsp;");
-         content += (Language ? F("количество заданий: ") : F("number of tasks: "));
-         content += String(NumEnabledTasks[chNum]); }
+ else 
+  {
+  content += F("<font color='darkblue'>&emsp;");
+  content += (Language ? F("количество заданий: ") : F("number of tasks: "));
+  content += String(NumEnabledTasks[chNum]);
+  }
  content += F("</font></p>"); 
  }
-content += F("<hr /><form method='get' form action='/ChannelsControlsMode'><p>");
+content += F("<hr><form method='get' form action='/ChannelsControlsMode'><p>");
 content += (Language ? F("Режим управления каналами:") : F("Channels controls mode:"));
 content += F("&emsp;<select name='cm' size='1'><option ");
 if ( ChannelsControlsMode == CHANNELS_CONTROLS_ONLY_MANUALLY ) 
@@ -218,14 +239,16 @@ content += F("value='12'>");
 content += (Language ? F("только по заданиям") : F("only by tasks"));
 content += F("</option></select>&emsp;<input type='submit' value='"); 
 content += (Language ? F("Сохранить' />") : F("Save' />"));
+content += F("</p></form>");
 if ( ChannelsControlsMode == CHANNELS_CONTROLS_MANUALLY_AND_BY_TASKS )
  {
  content += (Language ? F("<i>&emsp;(ручное переключение до наступления действия очередного задания, или пропадания питания)</i>")
                       : F("<i>&emsp;(manual switching is active until the task-trigger or reboot)</i>"));
  }
-content += F("</p></form><hr />");
+content += F("<hr>");
 server.sendContent(content); content = "";
 // list tasks
+content += (Language ? F("<center><b>Список заданий</center></b>") : F("<center><b>Task list</center></b>"));
 curChNum = TaskList[0][TASK_CHANNEL];
 curTaskEnabled = (TaskList[0][TASK_ACTION] > 0);
 for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
@@ -244,9 +267,8 @@ for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
            && ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_ENABLED]
            && ChannelsControlsMode != CHANNELS_CONTROLS_ONLY_MANUALLY ? F("<font color='black'><b>") : F("<font color='dimgrey'>") );
  content += F("<form method='get' form action='/settask'><p>");
- content += (Language ? F("Задание ") : F("Task "));
- if ( numberOfTasks >  9 && (taskNum + 1) <  10 ) { content += F("0"); }
- if ( numberOfTasks > 99 && (taskNum + 1) < 100 ) { content += F("0"); }
+ if ( numberOfTasks >  9 && (taskNum + 1) <  10 ) { content += F("&nbsp;&nbsp;"); }
+ if ( numberOfTasks > 99 && (taskNum + 1) < 100 ) { content += F("&nbsp;&nbsp;"); }
  content += String(taskNum + 1) + F(":</b>&nbsp;");
  // Channel
  content += (Language ? F("Канал") : F("Channel"));
@@ -265,24 +287,22 @@ for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
  content += (Language ? F("Действие") : F("Action"));
  content += F("&nbsp;<select name='a' size='1'>");
  if ( TaskList[taskNum][TASK_ACTION] == ACTION_NOACTION ) 
-  { content += (Language ? F("<option selected='selected' value='0'>задание отключено</option><option value='11'>включить</option><option")
+  { content += (Language ? F("<option selected='selected' value='0'>нет действия</option><option value='11'>включить</option><option")
                          : F("<option selected='selected' value='0'>no action</option><option value='11'>set ON</option><option")); }
  if ( TaskList[taskNum][TASK_ACTION] == ACTION_TURN_OFF ) 
-  { content += (Language ? F("<option value='0'>задание отключено</option><option value='11'>включить</option><option selected='selected'")
+  { content += (Language ? F("<option value='0'>нет действия</option><option value='11'>включить</option><option selected='selected'")
                          : F("<option value='0'>disabled</option><option value='11'>set ON</option><option selected='selected'")); }
  if ( TaskList[taskNum][TASK_ACTION] == ACTION_TURN_ON )  
-  { content += (Language ? F("<option value='0'>задание отключено</option><option selected='selected' value='11'>включить</option><option")
+  { content += (Language ? F("<option value='0'>нет действия</option><option selected='selected' value='11'>включить</option><option")
                          : F("<option value='0'>disabled</option><option selected='selected' value='11'>set ON</option><option")); }
  content += (Language ? F(" value='10'>выключить</option></select>&nbsp;") : F(" value='10'>set OFF</option></select>&nbsp;"));
  // Hour, Minute, Second
- content += (Language ? F("Час") : F("Hour"));
+ content += (Language ? F("в") : F("at"));
  content += F("&nbsp;<input name='h' type='number' min='0' max='23' value='");
- content += String(TaskList[taskNum][TASK_HOUR]);
- content += (Language ? F("' />&nbsp;Минута") : F("' />&nbsp;Minute"));
- content += F("&nbsp;<input name='m' type='number' min='0' max='59' value='");
- content += String(TaskList[taskNum][TASK_MIN]);
- content += (Language ? F("' />&nbsp;Секунда") : F("' />&nbsp;Second"));
- content += F("&nbsp;<input name='s' type='number' min='0' max='59' value='");
+ content += String(TaskList[taskNum][TASK_HOUR]) + F("' />&nbsp;");
+ content += F(":&nbsp;<input name='m' type='number' min='0' max='59' value='");
+ content += String(TaskList[taskNum][TASK_MIN]) + F("' />&nbsp;");
+ content += F(":&nbsp;<input name='s' type='number' min='0' max='59' value='");
  content += String(TaskList[taskNum][TASK_SEC]) + F("' />&nbsp;");
  // Day(s)
  content += (Language ? F("День(дни)") : F("Day(s)"));
@@ -300,63 +320,61 @@ for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
   int duplicateTaskNumber = find_duplicate_or_conflicting_task(taskNum);
   if ( duplicateTaskNumber >= 0 )
    {
-   content += F("<font color='red'>&emsp;");  
-   if ( duplicateTaskNumber >= 1000 ) { content += (Language ? F("<b>конфликт с заданием ") : F("<b>conflicts with task ")); duplicateTaskNumber -= 1000; }
-                                 else { content += (Language ? F("<b>дублирует задание ") : F("<b>duplicates task ")); }
-   if ( numberOfTasks >  9 && (duplicateTaskNumber + 1) <  10 ) { content += F("0"); }
-   if ( numberOfTasks > 99 && (duplicateTaskNumber + 1) < 100 ) { content += F("0"); }
+   content += F("<font color='red'>&nbsp;");  
+   if ( duplicateTaskNumber >= 1000 ) { content += (Language ? F("<b>конфликт с ") : F("<b>conflicts with ")); duplicateTaskNumber -= 1000; }
+                                 else { content += (Language ? F("<b>дублирует ") : F("<b>duplicates ")); }
    content += String(duplicateTaskNumber + 1) + F(" !</b>");
    }
   if ( ChannelsControlsMode != CHANNELS_CONTROLS_ONLY_MANUALLY )
    { 
-   if ( ActiveNowTasksList[TaskList[taskNum][TASK_CHANNEL]] == taskNum )
+   if ( ActiveNowTasksList[TaskList[taskNum][TASK_CHANNEL]] == taskNum && ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_ENABLED] )
     {
-    content += F("<font color='darkblue'>&emsp;");  
+    content += F("<font color='darkblue'>&nbsp;");  
     content += ( TaskList[taskNum][TASK_ACTION] - 10 == ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_LASTSTATE] 
-               ? (Language ? F("активно") : F("active now")) : (Language ? F("переключено вручную") : F("manually switched")) );
+               ? (Language ? F("активно") : F("active")) : (Language ? F("вручную") : F("manually")) );
     }
-   }    
+   }     
   } 
  content += F("</p></form></font></b>");
  server.sendContent(content); content = "";
  } // end of for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
 // 
 yield(); 
-content += F("<hr /><form method='get' form action='/cleartasklist'><p>");
+content += F("<hr><form method='get' form action='/cleartasklist'><p>");
 content += (Language ? F("Очистить и отключить все задания (будьте осторожны !):") : F("Clear and disable all tasks (be careful !):"));
 content += F("&emsp;<input name='ctl' type='submit' value='");
 content += (Language ? F("Очистить список заданий' />") : F("Clear task list' />"));
 content += F("</form></p>"); 
-content += F("<hr /><form method='get' form action='/setnumberOfTasks'><p>");
+content += F("<hr><form method='get' form action='/setnumberOfTasks'><p>");
 content += (Language ? F("Количество заданий (") : F("Number of tasks ("));
 content += String(TASKLIST_MIN_NUMBER) + F("...") + String(TASKLIST_MAX_NUMBER) 
         + F("):&emsp;<input name='nt' type='number' min='") + String(TASKLIST_MIN_NUMBER) + F("' max='") + String(TASKLIST_MAX_NUMBER) + F("' value='");
 content += String(numberOfTasks) + F("' />&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить и перезагрузить") : F("Save and reboot"));
 content += F("'/></p></form>");
-content += F("<hr /><form method='get' form action='/setnumberOfChannels'><p>");
+content += F("<hr><form method='get' form action='/setnumberOfChannels'><p>");
 content += (Language ? F("Количество каналов (") : F("Number of channels ("));
 content += String(CHANNELLIST_MIN_NUMBER) + F("...") + String(CHANNELLIST_MAX_NUMBER) 
         + F("):&emsp;<input name='nc' type='number' min='") + String(CHANNELLIST_MIN_NUMBER) + F("' max='") + String(CHANNELLIST_MAX_NUMBER) + F("' value='");
 content += String(numberOfChannels) + F("' />&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить и перезагрузить") : F("Save and reboot"));
 content += F("'/></p></form>");
-content += F("<hr />");
+content += F("<hr>");
 // ChannelList
+content += (Language ? F("<center><b>Список каналов</center></b>") : F("<center><b>Channel list</center></b>"));
 for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
  {
  yield(); 
  content += ( ChannelList[chNum][CHANNEL_ENABLED] ? F("<font color='black'><b>") : F("<font color='dimgrey'>") );
  content += F("<form method='get' form action='/setchannelparams'><p>");
- content += (Language ? F("Канал ") : F("Channel "));
- if ( numberOfChannels > 9 && (chNum + 1) <  10 ) { content += F("0"); }
+ if ( numberOfChannels > 9 && (chNum + 1) <  10 ) { content += F("&nbsp;&nbsp;"); }
  content += String(chNum + 1) + F(":</b>&nbsp;<select name='e");
  if ( chNum < 10 ) { content += F("0"); }
  content += String(chNum) + F("' size='1'><option ");
  if ( ChannelList[chNum][CHANNEL_ENABLED] )
-      { content += (Language ? F("selected='selected' value='11'>включен</option><option value='10'>") : F("selected='selected' value='11'>enabled</option><option value='10'>")); }
- else { content += (Language ? F("value='11'>включен</option><option selected='selected' value='10'>") : F("value='11'>enabled</option><option selected='selected' value='10'>")); }
- content += (Language ? F("отключен") : F("disabled"));
+      { content += (Language ? F("selected='selected' value='11'>доступен</option><option value='10'>") : F("selected='selected' value='11'>enabled</option><option value='10'>")); }
+ else { content += (Language ? F("value='11'>доступен</option><option selected='selected' value='10'>") : F("value='11'>enabled</option><option selected='selected' value='10'>")); }
+ content += (Language ? F("недоступен") : F("disabled"));
  content += F("</option></select>");
  content += F("&nbsp;GPIO&nbsp;<input name='r' type='number' min='0' max='");
  content += String(GPIO_MAX_NUMBER) + F("' value='");
@@ -373,30 +391,29 @@ for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
  if ( duplicateChannelNumber >= 0 )
   {
   content += F("<font color='red'>&emsp;");  
-  if ( duplicateChannelNumber >= 1000 ) { content += (Language ? F("<b>конфликт с каналом ") : F("<b>conflicts with channel ")); duplicateChannelNumber -= 1000; }
-                                   else { content += (Language ? F("<b>дублирует канал ") : F("<b>duplicates channel ")); }
-   if ( numberOfChannels > 9 && (duplicateChannelNumber + 1) < 10 ) { content += F("0"); }
-   content += String(duplicateChannelNumber + 1) + F(" !</b></font>");
+  if ( duplicateChannelNumber >= 1000 ) { content += (Language ? F("<b>конфликт с ") : F("<b>conflicts with ")); duplicateChannelNumber -= 1000; }
+                                   else { content += (Language ? F("<b>дублирует ") : F("<b>duplicates ")); }
+  content += String(duplicateChannelNumber + 1) + F(" !</b></font>");
   }
  content += F("</p></form></font>");
  }
-content += (Language ? F("<i>Для NodeMCU GPIO может быть от ") : F("<i>For NodeMCU GPIO can be from 0"));
+content += (Language ? F("<i>&emsp;(для NodeMCU GPIO может быть от ") : F("<i>&emsp;(for NodeMCU GPIO can be from 0"));
 content += (Language ? F(" до ") : F(" to "));
 content += String(GPIO_MAX_NUMBER);
-content += (Language ? F(", исключая 6,7,8 и 11</i>") : F(", exclude 6,7,8 and 11</i>"));
-content += F("<hr /><form method='get' form action='/setlanguage'><p>");
+content += (Language ? F(", исключая 6,7,8 и 11)</i>") : F(", exclude 6,7,8 and 11)</i>"));
+content += F("<hr><form method='get' form action='/setlanguage'><p>");
 content += (Language ? F("Язык интерфейса") : F("Interface language"));
 content += F(":&emsp;<select name='lang' size='1'><option ");
 content += ( Language ? F("selected='selected' value='11'>Русский</option><option value='10'>English</option></select>")
                       : F("value='11'>Русский</option><option selected='selected' value='10'>English</option></select>"));
 content += F("&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить' /></p></form>") : F("Save' /></p></form>"));
-content += F("<hr /><form method='get' form action='/setntpTimeZone'><p>");
+content += F("<hr><form method='get' form action='/setntpTimeZone'><p>");
 content += (Language ? F("Часовой пояс") : F("Time Zone"));
 content += F("(-12...12):&emsp;<input name='tz' type='number' min='-12' max='12' value='");
 content += String(ntpTimeZone) + F("' />&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить и перезагрузить'") : F("Save and reboot'"));
-content += F(" /></p></form><hr /><form method='get' form action='/setlogin'><p>");
+content += F(" /></p></form><hr><form method='get' form action='/setlogin'><p>");
 content += (Language ? F("Имя авторизации") : F("Login name"));
 content += F(":&emsp;<input maxlength='10' name='ln' size='10' type='text' value='");
 content += loginName + F("' /></p><p>");
@@ -408,7 +425,7 @@ content += (Language ? F("Старый пароль") : F("Old password"));
 content += F(":&emsp;<input maxlength='10' name='op' size='10' type='password'");
 content += F(" />&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить'/></p></form>") : F("Save'/></p></form>"));
-content += F("<hr /><form><input formaction='/firmware' formmethod='get' type='submit' value='");
+content += F("<hr><form><input formaction='/firmware' formmethod='get' type='submit' value='");
 content += (Language ? F("Загрузка прошивки'") : F("Firmware update'"));
 content += F("' />&emsp;&emsp;&emsp;<input formaction='/restart' formmethod='get' type='submit' value='");
 content += (Language ? F("Перезагрузить' /></form>") : F("Reboot' /></form>"));
