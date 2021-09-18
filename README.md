@@ -14,7 +14,7 @@ The exact time receives from the Internet (NTP), after the first synchronization
 
 **Device capabilities:**
 
-Arbitrary (1-20) number of control channels (on / off), configured in the web interface. For each channel, configurable on / off, GPIO, direct / inverse control.
+Arbitrary (1-15) number of control channels (on / off), configured in the web interface. For each channel, configurable on / off, GPIO, direct / inverse control.
 
 An arbitrary (1-100) number of tasks (timers), configured in the web interface. For each task, a channel, an action (on / off / task disabled), a condition by time of day and day, or a group of days of the week are configured. The accuracy of setting the condition in time is a second.
 
@@ -56,7 +56,7 @@ With Multicast DNS (mDNS) available as host vt.local.
 
 **Возможности устройства:**
 
-Произвольное (1-20) количество каналов управления (вкл/выкл), настраивается в веб-интерфейсе.
+Произвольное (1-15) количество каналов управления (вкл/выкл), настраивается в веб-интерфейсе.
 Для каждого канала настраивается "включен/отключен", GPIO, прямое/инвертированное управление.
 
 Произвольное (1-100) количество заданий(таймеров), настраивается в веб-интерфейсе.
