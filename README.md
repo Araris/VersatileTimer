@@ -18,11 +18,11 @@ Arbitrary (1-15) number of control channels (on / off), configured in the web in
 
 An arbitrary (1-100) number of tasks (timers), configured in the web interface. For each task, a channel, an action (on / off / task disabled), a condition by time of day and day, or a group of days of the week are configured. The accuracy of setting the condition in time is a second.
 
-Three channel control modes:
+Channel control is possible by tasks and manually;
+  - manually - after a power failure, the last channel state is restored;
+  - by tasks - after a power failure, the state is set in which the channel should be in accordance with the task settings for the current day of the week and time of day;
 
-  - manual control only - task settings are ignored, after a power failure, the last channel state is restored;
-  - by tasks and manually - allows you to manually switch channels, but only before the next task occurs, or power is lost. After power failure - see mode below;
-  - only by tasks - after a power failure, the state is set in which the channels should be in accordance with the settings of the tasks for the current day (group of days) of the week and time of day;
+Channel state changes log.
 
 Language selection (English / Russian) in the web interface.
 
@@ -63,10 +63,11 @@ With Multicast DNS (mDNS) available as host vt.local.
 Для каждого задания настраивается канал, действие (вкл/выкл/задание отключено), условие по времени суток и дню, или группе дней недели.
 Точность установки условия по времени - секунда.
 
-Три режима управления каналами:
-  - только ручное управление - настройки заданий игнорируются, после пропадания питания восстанавливается последнее состояние каналов;
-  - по заданиям и вручную - позволяет вручную переключать каналы, но лишь до наступления действия очередного задания, либо пропадания питания. После пропадания питания - см. режим ниже;
-  - только по заданиям - после пропадания питания устанавливается состояние, в котором каналы должны находиться согласно настройкам заданий для текущего дня недели и времени суток;
+Управление каналами возможно по заданиям и вручную;
+  - вручную - после пропадания питания восстанавливается последнее состояние канала;
+  - по заданиям - после пропадания питания устанавливается состояние, в котором канал должен находиться согласно настройкам заданий для текущего дня недели и времени суток;
+
+Журнал изменений состояния каналов. 
 
 Выбор языка (английский / русский) в веб-интерфейсе.
 
