@@ -107,6 +107,7 @@ int log_Day = 0;
 int log_Month = 0;
 int log_Year = 0;
 time_t log_today = 0;
+File log_FileHandle;
 unsigned long log_lastProcess = 0;
 bool log_processAfterStart = true;
 char log_curPath[32];
@@ -210,20 +211,14 @@ void log_Append(uint8_t ev, uint8_t ch, uint8_t ts, uint8_t act)
 if ( !log_OK ) { return; }
 struct Log_Data data = { curEpochTime, ev, ch, ts, act };
 File f = LittleFS.open(log_curPath, "a");
-f.write((uint8_t *)&data, sizeof(data));
-f.close();
+if ( f ) { f.write((uint8_t *)&data, sizeof(data)); f.close(); }
 }
 
-boolean log_readRow(Log_Data *output, time_t date, size_t rownumber)
+boolean log_readRow(Log_Data *output, size_t rownumber)
 {
-char path[32];
-log_pathFromDate(path, date);
-if (!LittleFS.exists(path)) { return false; }
-File f = LittleFS.open(path, "r");
-if ( ((int32_t)(f.size() / sizeof(Log_Data)) - (int32_t)rownumber) <= 0 ) { f.close(); return false; }
-f.seek(rownumber * sizeof(Log_Data));
-f.read((uint8_t *)output, sizeof(Log_Data));
-f.close();
+if ( ((int32_t)(log_FileHandle.size() / sizeof(Log_Data)) - (int32_t)rownumber) <= 0 ) { return false; }
+log_FileHandle.seek(rownumber * sizeof(Log_Data));
+log_FileHandle.read((uint8_t *)output, sizeof(Log_Data));
 return true;
 }
 
@@ -377,35 +372,45 @@ int counter = 0;
 int ls = log_StartRecord;
 if ( ls < 1 ) { ls = log_ViewStep; }
 struct Log_Data rl;
-while ( log_readRow(&rl, log_ViewDate, ls - 1) )
- { 
- content += F("<tr><td>");
- struct tm *ptm = gmtime((time_t *)&rl.utc); 
- content += String(ptm->tm_mday) + F(".") 
-          + (ptm->tm_mon + 1 < 10 ? F("0") : F("")) + String(ptm->tm_mon + 1) + F(".") 
-          + String(ptm->tm_year + 1900) + F("&emsp;")
-          + (ptm->tm_hour < 10 ? F("0") : F("")) + String(ptm->tm_hour) + F(":") 
-          + (ptm->tm_min  < 10 ? F("0") : F("")) + String(ptm->tm_min) + F(":") 
-          + (ptm->tm_sec  < 10 ? F("0") : F("")) + String(ptm->tm_sec) + F("</td><td>&emsp;");
- content += (Language ? namesOfEventsR[rl.event] : namesOfEventsE[rl.event]);
- content += F("</td><td align='right'>");
- if ( rl.event > 0 )
+char path[32];
+log_pathFromDate(path, log_ViewDate);
+if ( LittleFS.exists(path) )
+ {
+ log_FileHandle = LittleFS.open(path, "r");
+ if ( log_FileHandle )
   {
-  content += (rl.event == 2 ? String(rl.task + 1) : F("&nbsp;"));
-  content += F("</td><td align='right'>");
-  //content += ((rl.ch + 1) < 10 ? F("&nbsp;&nbsp;") : F(""));
-  content += String(rl.ch + 1);
-  content += F("</td><td align='left'>&emsp;");
-  if ( rl.act ) { content += (Language ? F("ВКЛ")  : F("ON")); } 
-           else { content += (Language ? F("ВЫКЛ") : F("OFF")); }
+  while ( log_readRow(&rl, ls - 1) )
+   { 
+   content += F("<tr><td>");
+   struct tm *ptm = gmtime((time_t *)&rl.utc); 
+   content += String(ptm->tm_mday) + F(".") 
+            + (ptm->tm_mon + 1 < 10 ? F("0") : F("")) + String(ptm->tm_mon + 1) + F(".") 
+            + String(ptm->tm_year + 1900) + F("&emsp;")
+            + (ptm->tm_hour < 10 ? F("0") : F("")) + String(ptm->tm_hour) + F(":") 
+            + (ptm->tm_min  < 10 ? F("0") : F("")) + String(ptm->tm_min) + F(":") 
+            + (ptm->tm_sec  < 10 ? F("0") : F("")) + String(ptm->tm_sec) + F("</td><td>&emsp;");
+   content += (Language ? namesOfEventsR[rl.event] : namesOfEventsE[rl.event]);
+   content += F("</td><td align='right'>");
+   if ( rl.event > 0 )
+    {
+    content += (rl.event == 2 ? String(rl.task + 1) : F("&nbsp;"));
+    content += F("</td><td align='right'>");
+    //content += ((rl.ch + 1) < 10 ? F("&nbsp;&nbsp;") : F(""));
+    content += String(rl.ch + 1);
+    content += F("</td><td align='left'>&emsp;");
+    if ( rl.act ) { content += (Language ? F("ВКЛ")  : F("ON")); } 
+             else { content += (Language ? F("ВЫКЛ") : F("OFF")); }
+    }
+   content += F("</td></tr>");
+   ls--;
+   counter++;
+   if ( ls < 1 ) { break; }
+   if ( counter >= log_ViewStep ) { break; }
+   yield();
+   }
+  log_FileHandle.close();
   }
- content += F("</td></tr>");
- ls--;
- counter++;
- if ( ls < 1 ) { break; }
- if ( counter >= log_ViewStep ) { break; }
- yield();
- } // end of while ( log_readRow(&rl, log_ViewDate, ls - 1) )
+ }
 content += F("</tr></table><p>");
 if ( log_NumRecords > 0 )
  {
