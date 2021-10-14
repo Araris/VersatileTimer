@@ -2,6 +2,7 @@
 // Tested on NodeMCU 1.0 (ESP-12E Module) and on Generic ESP8266 Module
 
 //#define DEBUG 1
+//#define FIXED_IP_ADDRESSES 1
 
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
@@ -20,21 +21,22 @@
 //
 #include "Secrets.h"
 //
+#define POOL_SERVER_NAME       "europe.pool.ntp.org" // timeClient poolServerName
+#define MDNSID                                  "VT" // mDNS host
 #define FIRST_RUN_SIGNATURE_EEPROM_ADDRESS         0 // int FIRST_RUN_SIGNATURE
 #define LANGUAGE_EEPROM_ADDRESS                    4 // boolean Language
 #define LOG_DAYSTOKEEP_EEPROM_ADDRESS              5 // byte log_DaysToKeep
 #define LOG_VIEWSTEP_EEPROM_ADDRESS                6 // byte log_ViewStep
 #define COUNTER_OF_REBOOTS_EEPROM_ADDRESS          8 // int counterOfReboots
 #define NUMBER_OF_TASKS_EEPROM_ADDRESS            10 // byte numberOfTasks
-#define NTP_TIME_ZONE_EEPROM_ADDRESS              11 // byte (int ntpTimeZone + 12)
+#define NTP_TIME_ZONE_EEPROM_ADDRESS              11 // byte 1...24 (int ntpTimeZone + 12)
+#define NTP_DEFAULT_TIME_ZONE                      3
 #define NUMBER_OF_CHANNELS_EEPROM_ADDRESS         12 // byte numberOfChannels
 #define LOGIN_NAME_PASS_EEPROM_ADDRESS            16 // (16-26) String loginName from LOGIN_NAME_PASS_EEPROM_ADDRESS to LOGIN_NAME_PASS_EEPROM_ADDRESS + 10
                                                      // (27-39) String loginPass from LOGIN_NAME_PASS_EEPROM_ADDRESS + 11 to LOGIN_NAME_PASS_EEPROM_ADDRESS + 22
 #define CHANNELLIST_EEPROM_ADDRESS                40 // byte ChannelList from CHANNELLIST_EEPROM_ADDRESS to CHANNELLIST_EEPROM_ADDRESS + CHANNELLIST_MAX_NUMBER * CHANNEL_NUM_ELEMENTS
 #define TASKLIST_EEPROM_ADDRESS                  100 // byte TaskList from TASKLIST_EEPROM_ADDRESS to TASKLIST_EEPROM_ADDRESS + numberOfTasks * TASK_NUM_ELEMENTS
-//
 #define FIRST_RUN_SIGNATURE                      139 // two-byte signature to verify the first run on the device and prepare EEPROM
-#define MDNSID                                  "VT" // mDNS host
 #define GPIO_MAX_NUMBER                           16
 #define CHANNELLIST_MIN_NUMBER                     1
 #define CHANNELLIST_MAX_NUMBER                    15
@@ -62,10 +64,10 @@
 #define EVENT_START                                0
 #define EVENT_MANUAL_SWITCHING                     1
 #define EVENT_TASK_SWITCHING                       2
-#define LOG_DIR                               "/log"
 #define DAYSTOKEEP_DEF                             7
 #define DAYSTOKEEP_MIN                             1
 #define DAYSTOKEEP_MAX                            60
+#define LOG_DIR                               "/log"
 #define LOG_VIEWSTEP_DEF                          20
 #define LOG_VIEWSTEP_MIN                           5
 #define LOG_VIEWSTEP_MAX                          50
@@ -81,10 +83,18 @@ const String namesOfEventsE[] = {"Start","Manual switching&nbsp;","Switching by 
 const String namesOfEventsR[] = {"Начало работы","Переключение вручную&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;","Переключение по заданию"};
 const uint8_t monthDays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
 //
+#ifdef FIXED_IP_ADDRESSES 
+ IPAddress local_IP(192, 168, 1, 111);
+ IPAddress gateway(192, 168, 1, 1);
+ IPAddress subnet(255, 255, 0, 0);
+ IPAddress primaryDNS(8, 8, 8, 8);
+ IPAddress secondaryDNS(8, 8, 4, 4);
+#endif
+//
 ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000UL);
+NTPClient timeClient(ntpUDP, POOL_SERVER_NAME, 0, 60000UL);
 //
 struct Log_Data
  {
@@ -134,7 +144,7 @@ uint8_t** ChannelList;
 byte ActiveNowTasksList[CHANNELLIST_MAX_NUMBER];  
 byte NumEnabledTasks[CHANNELLIST_MAX_NUMBER];                         
 int counterOfReboots = 0; 
-int ntpTimeZone = 0;            // -12...12
+int ntpTimeZone = NTP_DEFAULT_TIME_ZONE;  // -11...12
 boolean Language = false;       // false - English, true - Russian
 #define NTPUPDATEINTERVAL 1800000UL
 bool timeSyncOK = false;
@@ -265,7 +275,9 @@ log_StartRecord = log_NumRecords;
 void drawHeader(boolean isMainPage)
 {
 String content = F("<link rel='shortcut icon' href='data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAQAQAAAAAAAAAAAAAAAAAAAAAAADCt6pgwrep/cK4qv/CuKr/wriq/8K4qv/CuKr/wriq/8K4qv/CuKr/wriq/8K4qv/CuKr/wriq/8K3qf3DuaxiwrmqisK4qv/CuKr/wriq/8K4qv/CuKr/vrSm/7WrnP+1q5z/vrSm/8K4qv/CuKr/wriq/8K4qv/CuKr/w7ipjMK5qorCuKr/wriq/8K4qv+zqZr/kYd4/5CHev+ln5T/pZ+U/5CHev+Rh3j/s6ma/8K4qv/CuKr/wriq/8O4qYzCuaqKwriq/8K4qv+jmYv/lo6C/9/d2f//////t7Wz/7e1s///////393Z/5aOgv+jmYv/wriq/8K4qv/DuKmMwrmqisK4qv+qoJH/npaL/6Cem//8/Pv//////9/f3v/f397///////z8+/+gnpv/npaL/6qgkf/CuKr/w7ipjMK5qoq/tab/i4Jz//Py8P+fnZr/7ezs///////////////////////t7Ov/n52a//Py8P+LgnP/v7Wm/8O4qYzCuaqKqZ+R/7awqP//////////////////////////////////////////////////////trCo/6mfkf/DuKmMwrmqipqQgv/X1M///////////////////////////////////////////////////////9fUz/+akIL/w7ipjMK5qoqWjH3/tbKu/1tYU///////+fj+/7ev8v9oVuP/xb70/////////////////1tYU/+1sq7/lox9/8K5q4vCt6t5m5GD/9XSzf/9/f7/npPt/1xI4f+RhOv/4d75////////////////////////////1dLN/5uRg//Ct6t5wrqrQ6uhk/+xq6H//fz+/7mx8v/z8v3//////////////////////////////////////7Grof+roZP/wrqrQ7+/vwS/tqfiioFy/+3s6f+IhoL/6urp///////////////////////q6un/iIaC/+3s6f+KgXL/v7an4r+/vwQAAAAAw7iqXa+llv+WjoL/sa+s//7+/v//////1dTT/9XU0////////v7+/7GvrP+WjoL/r6WW/8O4ql0AAAAAAAAAAAAAAADDuauYqqCS/4+Gef/Rzsn/+/v7/8HAvv/BwL7/+/v7/9HOyf+Phnn/qqCS/8O5q5gAAAAAAAAAAAAAAAAAAAAAgICAAsG3qYC5rqD6mY+A/4l/cf+Xj4P/l4+D/4l/cf+Zj4D/ua6g+sG3qYCAgIACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw7WoJsO5q5HBuKrXvLKk+byypPnBuKrXw7mrkcO1qCYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==' />");
-content += F("<html><style>");
+content += F("<head><title>");
+content += (Language ? F("Универсальный таймер") : F("Versatile timer"));
+content += F("</title></head><html><style>");
 content += F(".dac{width:100%;text-align:center}");
 content += F(".subdiv{width:600px;padding-left: 4px;}");
 content += F(".maindiv,.subdiv{margin-left:auto;margin-right:auto;}");
@@ -279,7 +291,7 @@ content += F("'))f.submit();}</script>");
 content += F("<body style='background: #87CEFA'><div class='maindiv'><div class='dac'><span style='font-size:22pt'>");
 if ( isMainPage )
  {
- content += (Language ? F("Универсальный программируемый таймер</span><p>Время: <b>") : F("VERSATILE TIMER</span><p>Time: <b>"));
+ content += (Language ? F("Универсальный программируемый таймер</span><p>Время: <b>") : F("Versatile timer</span><p>Time: <b>"));
  content += String(curTimeHour) + F(":")  + ( curTimeMin < 10 ? "0" : "" ) + String(curTimeMin) + F(":") + ( curTimeSec < 10 ? "0" : "" ) + String(curTimeSec) + F("</b>,&nbsp;<b>");
  content += (Language ? namesOfDaysR[curDayOfWeek] : namesOfDaysE[curDayOfWeek]);
  long secs = millis()/1000;
@@ -744,7 +756,7 @@ content += F("&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить") : F("Save"));
 content += F("' /></p></form><form method='get' form action='/setntpTimeZone'><p>");
 content += (Language ? F("Часовой пояс") : F("Time Zone"));
-content += F("(-12...12):&emsp;<input name='tz' type='number' min='-12' max='12' value='");
+content += F("(-12...12):&emsp;<input name='tz' type='number' min='-11' max='12' value='");
 content += String(ntpTimeZone) + F("' />&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить и перезагрузить") : F("Save and reboot"));
 content += F("' /></p></form><form method='get' form action='/setlogin'><p>");
@@ -1453,7 +1465,7 @@ if ( EEPROMReadInt(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS) != FIRST_RUN_SIGNATURE )
  EEPROMWriteInt(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS, FIRST_RUN_SIGNATURE); 
  EEPROM.write(LOG_DAYSTOKEEP_EEPROM_ADDRESS, DAYSTOKEEP_DEF);
  EEPROM.write(LOG_VIEWSTEP_EEPROM_ADDRESS, LOG_VIEWSTEP_DEF);
- EEPROM.write(NTP_TIME_ZONE_EEPROM_ADDRESS, 3 + 12);
+ EEPROM.write(NTP_TIME_ZONE_EEPROM_ADDRESS, NTP_DEFAULT_TIME_ZONE + 12);
  EEPROM.commit();
  EEPROM.end();
  #ifdef DEBUG 
@@ -1474,7 +1486,7 @@ log_ViewStep = EEPROM.read(LOG_VIEWSTEP_EEPROM_ADDRESS);
 if ( log_ViewStep > LOG_VIEWSTEP_MAX || log_ViewStep < LOG_VIEWSTEP_MIN ) { log_ViewStep = LOG_VIEWSTEP_DEF; }
 ntpTimeZone = EEPROM.read(NTP_TIME_ZONE_EEPROM_ADDRESS);
 ntpTimeZone = ntpTimeZone - 12;
-if ( ntpTimeZone > 24 ) { ntpTimeZone = 2; }
+if ( ntpTimeZone > 24 ) { ntpTimeZone = NTP_DEFAULT_TIME_ZONE; }
 numberOfTasks = EEPROM.read(NUMBER_OF_TASKS_EEPROM_ADDRESS);
 if ( numberOfTasks < TASKLIST_MIN_NUMBER || numberOfTasks > TASKLIST_MAX_NUMBER ) { numberOfTasks = 5; }
 TaskList = new uint8_t*[numberOfTasks];
@@ -1490,6 +1502,15 @@ read_login_pass_from_EEPROM();
 read_channellist_from_EEPROM_and_switch_channels();
 read_and_sort_tasklist_from_EEPROM();
 //
+#ifdef FIXED_IP_ADDRESSES 
+ if ( !WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS) )
+  {
+  #ifdef DEBUG
+   Serial.println(F("Failed to configure fixed IP addresses."));
+   while ( true ) { yield(); }
+  #endif 
+  }
+#endif
 WiFi.begin();
 delay(500);
 WiFi.mode(WIFI_STA);
@@ -1535,6 +1556,7 @@ statusWiFi = ( WiFi.status() == WL_CONNECTED );
  if ( statusWiFi ) 
   {
   Serial.print(F("Connected to ")); Serial.println(AP_SSID);
+  Serial.print(F("MAC address ")); Serial.println(WiFi.macAddress());
   Serial.print(F("Server can be accessed at http://")); Serial.print(WiFi.localIP());
   Serial.print(F(" or at http://")); Serial.print(MDNSID); Serial.println(F(".local"));
   }
@@ -1550,9 +1572,9 @@ EEPROMWriteInt(COUNTER_OF_REBOOTS_EEPROM_ADDRESS, counterOfReboots);
 //
 timeClient.begin();
 timeClient.setTimeOffset(ntpTimeZone * 3600);
-MDNS.begin(MDNSID);
 setupServer();
 server.begin();
+MDNS.begin(MDNSID);
 ESP.wdtEnable(WDTO_8S);
 everySecondTimer = millis();
 CheckTaskListTimer = millis();
@@ -1562,8 +1584,12 @@ void loop()
 {
 yield(); delay(0);  
 statusWiFi = ( WiFi.status() == WL_CONNECTED );  
-server.handleClient();
-if ( statusWiFi ) { timeSyncOK = timeClient.update(); } else { timeSyncOK = false; }
+if ( statusWiFi ) 
+ {
+ server.handleClient();
+ timeSyncOK = timeClient.update(); 
+ } 
+else { timeSyncOK = false; }
 if ( timeSyncOK )
  {
  unsigned long difference = 0;
