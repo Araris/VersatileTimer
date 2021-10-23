@@ -1,17 +1,19 @@
 // Tested on Arduino IDE 1.8.8, 1.8.11, 1.8.16
 // Tested on NodeMCU 1.0 (ESP-12E Module) and on Generic ESP8266 Module
 
+// !!! CRITICAL IMPORTANT !!! 
+// Set 'Debug port: "Serial"' in Arduino IDE
+
 //#define DEBUG 1
-//#define FIXED_IP_ADDRESSES 1
 
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPUpdateServer.h>
-#include <NTPClient.h>                            // https://github.com/arduino-libraries/NTPClient
+#include <NTPClient.h>                 // https://github.com/arduino-libraries/NTPClient
 #include <ESP8266mDNS.h>
 #include <EEPROM.h>
-#include <LittleFS.h>                             // https://github.com/esp8266/Arduino/tree/master/libraries/LittleFS
+#include <LittleFS.h>                  // https://github.com/esp8266/Arduino/tree/master/libraries/LittleFS
 #include <time.h>
 //
 // Create a Secrets.h file with Wi-Fi connection settings as follows:
@@ -21,8 +23,16 @@
 //
 #include "Secrets.h"
 //
-#define POOL_SERVER_NAME       "europe.pool.ntp.org" // timeClient poolServerName
-#define MDNSID                                  "VT" // mDNS host
+//#define USE_FIXED_IP_ADDRESSES 1
+#ifdef USE_FIXED_IP_ADDRESSES 
+ IPAddress local_IP(192, 168, 1, 111);
+ IPAddress gateway(192, 168, 1, 1);
+ IPAddress subnet(255, 255, 0, 0);
+ IPAddress primaryDNS(8, 8, 8, 8);
+ IPAddress secondaryDNS(8, 8, 4, 4);
+#endif
+#define POOL_SERVER_NAME                          "europe.pool.ntp.org" // timeClient poolServerName
+#define MDNSHOST                                  "VT" // mDNS host
 #define FIRST_RUN_SIGNATURE_EEPROM_ADDRESS         0 // int FIRST_RUN_SIGNATURE
 #define LANGUAGE_EEPROM_ADDRESS                    4 // boolean Language
 #define LOG_DAYSTOKEEP_EEPROM_ADDRESS              5 // byte log_DaysToKeep
@@ -36,14 +46,17 @@
                                                      // (27-39) String loginPass from LOGIN_NAME_PASS_EEPROM_ADDRESS + 11 to LOGIN_NAME_PASS_EEPROM_ADDRESS + 22
 #define CHANNELLIST_EEPROM_ADDRESS                40 // byte ChannelList from CHANNELLIST_EEPROM_ADDRESS to CHANNELLIST_EEPROM_ADDRESS + CHANNELLIST_MAX_NUMBER * CHANNEL_NUM_ELEMENTS
 #define TASKLIST_EEPROM_ADDRESS                  100 // byte TaskList from TASKLIST_EEPROM_ADDRESS to TASKLIST_EEPROM_ADDRESS + numberOfTasks * TASK_NUM_ELEMENTS
-#define FIRST_RUN_SIGNATURE                      139 // two-byte signature to verify the first run on the device and prepare EEPROM
+#define FIRST_RUN_SIGNATURE                      139 // (0x8B) two-byte signature to verify the first run on the device and prepare EEPROM
 #define GPIO_MAX_NUMBER                           16
 #define CHANNELLIST_MIN_NUMBER                     1
 #define CHANNELLIST_MAX_NUMBER                    15
 #define CHANNEL_NUM_ELEMENTS                       4
 #define CHANNEL_GPIO                               0
 #define CHANNEL_INVERTED                           1
-#define CHANNEL_LASTSTATE                          2
+#define CHANNEL_LASTSTATE                          2 // LASTSTATE_OFF_BY_TASK, LASTSTATE_ON_BY_TASK,
+                                                     // LASTSTATE_OFF_MANUALLY, LASTSTATE_ON_MANUALLY,
+                                                     //  50..149 - OFF_UNTIL_NEXT_TASK  (task = CHANNEL_LASTSTATE - 50)
+                                                     // 150..250 - ON_UNTIL_NEXT_TASK   (task = CHANNEL_LASTSTATE - 150)
 #define CHANNEL_ENABLED                            3
 #define LASTSTATE_OFF_BY_TASK                      0
 #define LASTSTATE_ON_BY_TASK                       1
@@ -58,6 +71,9 @@
 #define TASK_SEC                                   3
 #define TASK_DAY                                   4
 #define TASK_CHANNEL                               5
+#define TASK_DAY_WORKDAYS                          7
+#define TASK_DAY_WEEKENDS                          8
+#define TASK_DAY_EVERYDAY                          9
 #define ACTION_NOACTION                            0
 #define ACTION_TURN_OFF                           10
 #define ACTION_TURN_ON                            11 
@@ -67,14 +83,14 @@
 #define DAYSTOKEEP_DEF                             7
 #define DAYSTOKEEP_MIN                             1
 #define DAYSTOKEEP_MAX                            60
-#define LOG_DIR                               "/log"
+#define LOG_DIR                                   "/log"
 #define LOG_VIEWSTEP_DEF                          20
 #define LOG_VIEWSTEP_MIN                           5
 #define LOG_VIEWSTEP_MAX                          50
 #define SECS_PER_MIN                            60UL
 #define SECS_PER_HOUR                         3600UL
 #define SECS_PER_DAY                         86400UL
-#define LEAP_YEAR(Y)                        ( ((1970+(Y))>0) && !((1970+(Y))%4) && ( ((1970+(Y))%100) || !((1970+(Y))%400) ) )
+#define LEAP_YEAR(Y)                         (((1970+(Y))>0) && !((1970+(Y))%4) && (((1970+(Y))%100) || !((1970+(Y))%400)))
 //                    GPIO      0     1    2    3    4    5     6     7     8     9    10    11   12   13   14   15   16
 const String NodeMCUpins[] = {"D3","D10","D4","D9","D2","D1","N/A","N/A","N/A","D11","D12","N/A","D6","D7","D5","D8","D0"};
 const String namesOfDaysE[] = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Workdays","Weekends","Every day"};
@@ -82,14 +98,6 @@ const String namesOfDaysR[] = {"Воскресенье","Понедельник"
 const String namesOfEventsE[] = {"Start","Manual switching&nbsp;","Switching by task"};
 const String namesOfEventsR[] = {"Начало работы","Переключение вручную&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;","Переключение по заданию"};
 const uint8_t monthDays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
-//
-#ifdef FIXED_IP_ADDRESSES 
- IPAddress local_IP(192, 168, 1, 111);
- IPAddress gateway(192, 168, 1, 1);
- IPAddress subnet(255, 255, 0, 0);
- IPAddress primaryDNS(8, 8, 8, 8);
- IPAddress secondaryDNS(8, 8, 4, 4);
-#endif
 //
 ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
@@ -104,7 +112,7 @@ struct Log_Data
  uint8_t  task;   // Task number (TASKLIST_MIN_NUMBER...TASKLIST_MAX_NUMBER), 0 if none
  uint8_t  act;    // Action (0 / 1)
  };
-boolean log_OK = false;
+boolean littleFS_OK = false;
 byte log_DaysToKeep;
 byte log_ViewStep;
 size_t log_FileSize = 0;
@@ -118,6 +126,7 @@ int log_Month = 0;
 int log_Year = 0;
 time_t log_today = 0;
 File log_FileHandle;
+File uploadFileHandle;
 unsigned long log_lastProcess = 0;
 bool log_processAfterStart = true;
 char log_curPath[32];
@@ -142,6 +151,7 @@ uint8_t** ChannelList;
                                 // 2 - 0...1 - channel last saved state
                                 // 3 - 0...1 - channel enabled
 byte ActiveNowTasksList[CHANNELLIST_MAX_NUMBER];  
+byte NextTasksList[CHANNELLIST_MAX_NUMBER];
 byte NumEnabledTasks[CHANNELLIST_MAX_NUMBER];                         
 int counterOfReboots = 0; 
 int ntpTimeZone = NTP_DEFAULT_TIME_ZONE;  // -11...12
@@ -155,15 +165,46 @@ int curTimeHour = 0;
 int curTimeMin = 0;
 int curTimeSec = 0;
 int curDayOfWeek = 0;           // 0 - Sunday, 1...5 - Monday...Friday, 6 - Saturday
-int curDateDay = 0;
-int curDateMonth = 0;
-int curDateYear = 0;
 bool statusWiFi = false;
 unsigned long everySecondTimer = 0;
 unsigned long CheckTaskListTimer = 0;
 unsigned long setClockcurrentMillis, setClockpreviousMillis, setClockelapsedMillis; 
                                
 /////////////////////////////////////////////////////////
+
+void ServerSendMessageAndRefresh( int interval = 0, String url = "/", String mess1 = "", String mess2 = "", String mess3 = "", String mess4 = "" )
+{
+String ans = F("<META http-equiv='refresh' content='");
+ans += String(interval) + F(";URL=") + url + F("'>") + mess1 + F("&nbsp;") + mess2 + F("&nbsp;") + mess3 + F("&nbsp;") + mess4;
+server.send(200, F("text/html; charset=utf-8"), ans);
+}
+
+void ServerSendMessageAndReboot()
+{
+ServerSendMessageAndRefresh( 10, "/", (Language ? F(" Перезагрузка...") : F(" Rebooting...")) );
+delay(500);
+server.stop();
+ESP.restart(); 
+}
+
+void handleFileUpload()
+{
+if ( !littleFS_OK ) { return; }
+if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+if ( server.uri() != "/uploadfile" ) return;
+HTTPUpload& upload = server.upload();
+if ( upload.status == UPLOAD_FILE_START )
+ {
+ String filename = upload.filename;
+ if ( !filename.startsWith("/") ) filename = "/"+filename;
+ uploadFileHandle = LittleFS.open(filename, "w");
+ filename = String();
+ } 
+else if ( upload.status == UPLOAD_FILE_WRITE ) 
+ { if ( uploadFileHandle ) { uploadFileHandle.write(upload.buf, upload.currentSize); } }
+else if ( upload.status == UPLOAD_FILE_END ) 
+ { if ( uploadFileHandle ) { uploadFileHandle.close(); } }
+}
 
 void log_process()
 {
@@ -218,7 +259,7 @@ return ( mktime(&tm) - (mktime(&start2000) - 946684800) ) / 86400 * 86400;
 
 void log_Append(uint8_t ev, uint8_t ch, uint8_t ts, uint8_t act)
 {
-if ( !log_OK ) { return; }
+if ( !littleFS_OK ) { return; }
 struct Log_Data data = { curEpochTime, ev, ch, ts, act };
 File f = LittleFS.open(log_curPath, "a");
 if ( f ) { f.write((uint8_t *)&data, sizeof(data)); f.close(); }
@@ -310,26 +351,41 @@ if ( isMainPage )
  content += String(__DATE__);
  content += (Language ? F("</b>&emsp;Перезагрузок: <b>") : F("</b>&emsp;Reboots: <b>"));
  content += String(counterOfReboots);
- content += (Language ? F("</p><hr><center><b>Состояние каналов</center></b>") : F("</p><hr><center><b>Channel status</center></b>"));
+ content += F("</p><hr>");
  }
 else
  {
- log_MinDate = F("99999999");
- log_MaxDate = F("00000000");
- Dir dir = LittleFS.openDir(LOG_DIR);
+ Dir dir = LittleFS.openDir("/");
+ File f;
  size_t usedBytes = 0;
+ String log_CurDate;
  while ( dir.next() )
   {
   if ( dir.fileSize() )
    {
-   File f = dir.openFile("r");
-   usedBytes += f.size();
-   String log_CurDate = dir.fileName();
-   if ( log_CurDate.compareTo(log_MaxDate) > 0 ) { log_MaxDate = log_CurDate; }
-   if ( log_CurDate.compareTo(log_MinDate) < 0 ) { log_MinDate = log_CurDate; }
-   f.close();
+   f = dir.openFile("r");
+   if ( f ) { usedBytes += f.size(); f.close(); }
+   yield();
    }
-  yield();
+  } 
+ log_MinDate = F("99999999");
+ log_MaxDate = F("00000000");
+ dir = LittleFS.openDir(LOG_DIR);
+ while ( dir.next() )
+  {
+  if ( dir.fileSize() )
+   {
+   f = dir.openFile("r");
+   if ( f ) 
+    {
+    usedBytes += f.size();
+    log_CurDate = dir.fileName();
+    if ( log_CurDate.compareTo(log_MaxDate) > 0 ) { log_MaxDate = log_CurDate; }
+    if ( log_CurDate.compareTo(log_MinDate) < 0 ) { log_MinDate = log_CurDate; }
+    f.close();
+    }
+   yield();
+   }
   }
  content += (Language ? F("Журнал на ") : F("Log for "));
  content += String(log_Day) + F(".");
@@ -364,14 +420,14 @@ server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 server.sendHeader("Pragma", "no-cache");
 server.sendHeader("Expires", "-1");
 server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-server.send(200, "text/html; charset=utf-8", "");
+server.send(200, F("text/html; charset=utf-8"), "");
 server.sendContent(content);
 yield();
 }
 
 void drawLOG()
 {
-if ( !log_OK ) { return; }   
+if ( !littleFS_OK ) { return; }   
 drawHeader(false);
 String content = F("<hr><table><tr>");
 content += (Language ? F("<th>Дата и время</th>") : F("<th>Date&time</th>"));
@@ -536,7 +592,7 @@ for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
  content += (Language ? F("Канал <b>") : F("Channel <b>"));
  if ( numberOfChannels > 9 && (chNum + 1) <  10 ) { content += F("&nbsp;&nbsp;"); }
  content += String(chNum + 1);
- content += (Language ? F("&nbsp;</b><font color='") : F(" </b>is&nbsp;<font color='"));
+ content += (Language ? F(":</b>&nbsp;<font color='") : F(":</b>&nbsp;<font color='"));
  String onoff;
  if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK )
   {
@@ -558,18 +614,25 @@ for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
   { onoff = "on"; content += ( Language ? F("red'><b>ВЫКЛЮЧЕН </font></b></td><td>(вручную)") : F("red'><b>OFF </font></b></td><td>(manually)") ); }
  else if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY )
   { onoff = "off"; content += ( Language ? F("green'><b>ВКЛЮЧЕН </font></b></td><td>(вручную)") : F("green'><b>ON </font></b></td><td>(manually)") ); }
+ else if ( ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150 )
+  { onoff = "onuntil"; content += ( Language ? F("red'><b>ВЫКЛЮЧЕН </font></b></td><td>(до след. задания)") : F("red'><b>OFF </font></b></td><td>(until next task)") ); }
+ else if ( ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250 )
+  { onoff = "offuntil"; content += ( Language ? F("green'><b>ВКЛЮЧЕН </font></b></td><td>(до след. задания)") : F("green'><b>ON </font></b></td><td>(until next task)") ); }
  content += F("</b></font></td><td>&emsp;<a href='/setchannelstate");   
  content += onoff + F("?s");   
  if ( chNum < 10 ) { content += F("0"); }
  content += String(chNum) + F("'><input type='button' value='");   
  if ( Language ) 
-  { content += ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK 
-              || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY ? F(" Выключить ") : F(" Включить ") ); 
+  { 
+  content += ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK 
+            || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250)
+            || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY ? F("Выключить") : F("Включить") ); 
   }
  else
   {
   content += ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK 
-            || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY ? F(" Set OFF ") : F(" Turn ON ") ); 
+            || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250)
+            || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY ? F("Set OFF") : F("Turn ON") ); 
   }
  content += F("'></a></td><td><font color='darkblue'>&emsp;");
  if ( NumEnabledTasks[chNum] > 0 )
@@ -577,47 +640,77 @@ for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
   content += (Language ? F("заданий: ") : F("tasks: "));
   content += String(NumEnabledTasks[chNum]);
   }
- else 
-  { content += (Language ? F("нет заданий") : F("no tasks")); }
- if ( NumEnabledTasks[chNum] > 0 && 
-     ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY 
-    || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY )
+ else { content += (Language ? F("нет заданий") : F("no tasks")); }
+ // manually
+ if ( NumEnabledTasks[chNum] > 0 
+   && ChannelList[chNum][CHANNEL_LASTSTATE] != LASTSTATE_ON_MANUALLY 
+   && ChannelList[chNum][CHANNEL_LASTSTATE] != LASTSTATE_OFF_MANUALLY
     )
   {
-  content += F("</td><td>&emsp;<a href='/setchannelbytasks?a");   
+  content += F("</td><td>&emsp;<a href='/setchannelmanually?a");   
   content += ( chNum < 10 ? F("0"): F("") );
   content += String(chNum) + F("'><input type='button' value='");   
-  content += ( Language ? F(" По заданиям ") : F(" By tasks ") ); 
+  content += ( Language ? F("Вручную") : F("Manually") ); 
+  content += F("'></a>");
+  }
+ if ( NumEnabledTasks[chNum] > 0 &&
+     (ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY 
+   || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY)
+    )
+  { content += F("</td><td>&emsp;"); }
+ // until next task 
+ if ( NumEnabledTasks[chNum] > 0 && ChannelList[chNum][CHANNEL_LASTSTATE] < 50 )
+  {
+  content += F("</td><td>&nbsp;<a href='/setchanneluntil?a");   
+  content += ( chNum < 10 ? F("0"): F("") );
+  content += String(chNum) + F("'><input type='button' value='");   
+  content += ( Language ? F("Вручную до след. задания") : F("Manually until next task") ); 
+  content += F("'></a>");
+  }
+ if ( NumEnabledTasks[chNum] > 0 && ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 )
+  {
+  content += F("</td><td>&emsp;");   
+  }
+ // by tasks
+ if ( NumEnabledTasks[chNum] > 0 && 
+     ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY 
+    || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY
+    || ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 )
+    )
+  {
+  content += F("</td><td>&nbsp;<a href='/setchannelbytasks?a");   
+  content += ( chNum < 10 ? F("0"): F("") );
+  content += String(chNum) + F("'><input type='button' value='");   
+  content += ( Language ? F("По заданиям") : F("By tasks") ); 
   content += F("'></a>");
   }
  content += F("</font></td></tr>"); 
  } // end of for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
 if ( isEnabledChannels ) { content += F("</tr></table>"); } 
-if ( log_OK )
+if ( littleFS_OK )
  {
- content += F("<hr><center><form method='get' form action='/viewlog'><input name='vwl' type='submit' value='&emsp;&emsp;&emsp;");
+ content += F("<hr><center><p><form method='get' form action='/viewlog'><input name='vwl' type='submit' value='&emsp;&emsp;&emsp;");
  content += (Language ? F("Просмотр журнала") : F("View log"));
- content += F("&emsp;&emsp;&emsp;' /></form></center>");
+ content += F("&emsp;&emsp;&emsp;' /></form></p></center>");
  }
 content += F("<hr>");
 server.sendContent(content); content = "";
 // list tasks
-content += (Language ? F("<center><b>Список заданий</center></b>") : F("<center><b>Task list</center></b>"));
 curChNum = TaskList[0][TASK_CHANNEL];
-curTaskEnabled = (TaskList[0][TASK_ACTION] > 0);
+curTaskEnabled = ( TaskList[0][TASK_ACTION] != ACTION_NOACTION );
 for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
  {
  yield(); 
  if ( numberOfChannels > 1 
-  && ( (curChNum != TaskList[taskNum][TASK_CHANNEL] && (TaskList[taskNum][TASK_ACTION] > 0)) 
-     || curTaskEnabled != (TaskList[taskNum][TASK_ACTION] > 0) )
+  && ( (curChNum != TaskList[taskNum][TASK_CHANNEL] && (TaskList[taskNum][TASK_ACTION] != ACTION_NOACTION)) 
+     || curTaskEnabled != (TaskList[taskNum][TASK_ACTION] != ACTION_NOACTION) )
     )
   {
   content += F("<p style='line-height:1%'> <br></p>");
   curChNum = TaskList[taskNum][TASK_CHANNEL];
-  curTaskEnabled = (TaskList[taskNum][TASK_ACTION] > 0);
+  curTaskEnabled = (TaskList[taskNum][TASK_ACTION] != ACTION_NOACTION);
   }
- content += ( TaskList[taskNum][TASK_ACTION] && ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_ENABLED]
+ content += ( (TaskList[taskNum][TASK_ACTION] != ACTION_NOACTION) && ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_ENABLED]
             ? F("<font color='black'><b>") : F("<font color='dimgrey'>") );
  content += F("<form method='get' form action='/settask'><p>");
  if ( numberOfTasks >  9 && (taskNum + 1) <  10 ) { content += F("&nbsp;&nbsp;"); }
@@ -660,7 +753,7 @@ for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
  // Day(s)
  content += (Language ? F("День(дни)") : F("Day(s)"));
  content += F("&nbsp;<select name='d' size='1'><option ");
- for (int t = 0; t <= 9; t++)
+ for (int t = 0; t <= TASK_DAY_EVERYDAY; t++)
   {
   if ( TaskList[taskNum][TASK_DAY] == t ) { content += F("selected='selected' "); } 
   content += F("value='"); content += String(t) + F("'>") + (Language ? namesOfDaysR[t] : namesOfDaysE[t]) + F("</option>");       
@@ -668,7 +761,7 @@ for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
   }
  content += F("</select>&nbsp;<input type='submit' value='");
  content += (Language ? F("Сохранить' />") : F("Save' />"));
- if ( TaskList[taskNum][TASK_ACTION] != 0 )
+ if ( TaskList[taskNum][TASK_ACTION] != ACTION_NOACTION && ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_ENABLED] )
   {
   int duplicateTaskNumber = find_duplicate_or_conflicting_task(taskNum);
   if ( duplicateTaskNumber >= 0 )
@@ -678,11 +771,19 @@ for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
                                  else { content += (Language ? F("<b>дублирует ") : F("<b>duplicates ")); }
    content += String(duplicateTaskNumber + 1) + F(" !</b></font>");
    }
-  if ( ActiveNowTasksList[TaskList[taskNum][TASK_CHANNEL]] == taskNum && ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_ENABLED] )
+  if ( ActiveNowTasksList[TaskList[taskNum][TASK_CHANNEL]] == taskNum 
+   && ( (TaskList[taskNum][TASK_ACTION] == ACTION_TURN_OFF && ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK) 
+     || (TaskList[taskNum][TASK_ACTION] == ACTION_TURN_ON && ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK)
+      )
+     )
    {
    content += F("<font color='darkblue'>&nbsp;");  
-   if ( TaskList[taskNum][TASK_ACTION] - 10 == ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_LASTSTATE] )
-    { content += (Language ? F("активно") : F("active")); }
+   content += (Language ? F("активно") : F("active"));
+   }
+  if ( NextTasksList[TaskList[taskNum][TASK_CHANNEL]] == taskNum )
+   {
+   content += F("<font color='DarkCyan'>&nbsp;");  
+   content += (Language ? F("следующее") : F("next"));
    }
   } 
  content += F("</p></form></font></b>");
@@ -691,13 +792,14 @@ for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
 yield(); 
 content += F("<hr>");
 // ChannelList
-content += (Language ? F("<center><b>Список каналов</center></b>") : F("<center><b>Channel list</center></b>"));
 for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
  {
  yield(); 
- content += ( ChannelList[chNum][CHANNEL_ENABLED] ? F("<font color='black'><b>") : F("<font color='dimgrey'>") );
+ content += ( ChannelList[chNum][CHANNEL_ENABLED] ? F("<font color='black'>") : F("<font color='dimgrey'>") );
  content += F("<form method='get' form action='/setchannelparams'><p>");
  if ( numberOfChannels > 9 && (chNum + 1) <  10 ) { content += F("&nbsp;&nbsp;"); }
+ content += (Language ? F("Канал ") : F("Channel "));
+ content += ( ChannelList[chNum][CHANNEL_ENABLED] ? F("<b>") : F("") );
  content += String(chNum + 1) + F(":</b>&nbsp;<select name='e");
  if ( chNum < 10 ) { content += F("0"); }
  content += String(chNum) + F("' size='1'><option ");
@@ -733,7 +835,6 @@ content += String(GPIO_MAX_NUMBER);
 content += (Language ? F(", исключая 6,7,8 и 11)</i>") : F(", exclude 6,7,8 and 11)</i>"));
 content += F("<hr>");
 // Settings
-content += (Language ? F("<center><b>Настройки</center></b>") : F("<center><b>Settings</center></b>"));
 content += F("<form method='get' form action='/setnumberOfTasks'><p>");
 content += (Language ? F("Количество заданий (") : F("Number of tasks ("));
 content += String(TASKLIST_MIN_NUMBER) + F("...") + String(TASKLIST_MAX_NUMBER) 
@@ -761,20 +862,128 @@ content += String(ntpTimeZone) + F("' />&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить и перезагрузить") : F("Save and reboot"));
 content += F("' /></p></form><form method='get' form action='/setlogin'><p>");
 content += (Language ? F("Имя авторизации") : F("Login name"));
-content += F(":&emsp;<input maxlength='10' name='ln' size='10' type='text' value='");
+content += F(":&emsp;<input maxlength='10' name='ln' required size='10' type='text' value='");
 content += loginName + F("' /></p><p>");
 content += (Language ? F("Новый пароль") : F("New password"));
-content += F(":&emsp;<input maxlength='10' name='np' size='10' type='password' />&emsp;");
+content += F(":&emsp;<input maxlength='10' name='np' required size='10' type='password' />&emsp;");
 content += (Language ? F("Подтвердите новый пароль") : F("Confirm new password"));
-content += F(":&emsp;<input maxlength='10' name='npc' size='10' type='password' />&emsp;");
+content += F(":&emsp;<input maxlength='10' name='npc' required size='10' type='password' />&emsp;");
 content += (Language ? F("Старый пароль") : F("Old password"));
-content += F(":&emsp;<input maxlength='10' name='op' size='10' type='password'");
+content += F(":&emsp;<input maxlength='10' name='op' required size='10' type='password'");
 content += F(" />&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить") : F("Save"));
 content += F("' /></form>");
 content += F("<hr>");
+// Settings files
+// Save
+struct tm *tinfo = gmtime(&log_today);
+content += F("<p><form method='get' form action='/savesettings'>");
+content += (Language ? F("Сохранить все настройки в файл") : F("Save all settings to file"));
+content += F(":&emsp;<input maxlength='30' name='fn' size='30' type='text' pattern='[a-zA-Z0-9-_.]+' required value='");
+content += String(1900 + tinfo->tm_year) + F("-")
+        + ( tinfo->tm_mon + 1 < 10 ? F("0") : F("") ) + String(tinfo->tm_mon + 1) + F("-")
+        + ( tinfo->tm_mday < 10 ? F("0") : F("") ) + String(tinfo->tm_mday) + F("-")
+        + ( curTimeHour < 10 ? F("0") : F("") ) + String(curTimeHour) + F("-")
+        + ( curTimeMin < 10 ? F("0") : F("") ) + String(curTimeMin) + F(".VTcfg");
+content += F("' />&emsp;<input type='submit' value='");
+content += (Language ? F("Сохранить") : F("Save"));
+content += F("' /></form></p>");
+int numFiles = 0;
+Dir dir = LittleFS.openDir("/");
+while ( dir.next() )
+ {
+ if ( dir.isFile() )
+  {
+  if ( dir.fileSize() )
+   {
+   File f = dir.openFile("r");
+   if ( f )
+    {
+    if ( String(f.name()) != "" && f.size() == (TASKLIST_EEPROM_ADDRESS + TASKLIST_MAX_NUMBER * TASK_NUM_ELEMENTS) )
+     { numFiles++; }
+    f.close();
+    }
+   }
+  } 
+ yield();
+ }
+if ( numFiles > 0 )
+ {
+ String arrFileNames[numFiles];
+ dir.rewind();
+ int fileNum = 0;
+ do
+  {
+  if ( dir.fileName() != "" && dir.fileSize() == (TASKLIST_EEPROM_ADDRESS + TASKLIST_MAX_NUMBER * TASK_NUM_ELEMENTS) )
+   { arrFileNames[fileNum] = dir.fileName(); fileNum++; }
+  if ( fileNum >= numFiles ) { break; }
+  yield();
+  }
+ while ( dir.next() ); 
+ // Restore
+ content += F("<form method='get' form action='/restoresettings' onsubmit='warn();return false;'>");
+ content += (Language ? F("Восстановить настройки из файла") : F("Restore settings from file"));
+ content += F(":&emsp;<select name='file' size='1'>");
+ for ( int fileNum = 0; fileNum < numFiles; fileNum++ )
+  {
+  content += F("<option required value='"); 
+  content += arrFileNames[fileNum] + F("'>") + arrFileNames[fileNum] + F("</option>");       
+  yield();
+  }
+ content += F("</select>&emsp;<input type='submit' value='");
+ content += (Language ? F("Восстановить (будьте осторожны!) и перезагрузить") : F("Restore (be careful!) and reboot"));
+ content += F("' /></form>");
+ // Rename
+ content += F("<form method='get' form action='/renamefile'>");
+ content += (Language ? F("Переименовать файл") : F("Rename settings file"));
+ content += F(":&emsp;<select name='file' size='1'>");
+ for ( int fileNum = 0; fileNum < numFiles; fileNum++ )
+  {
+  content += F("<option required value='"); 
+  content += arrFileNames[fileNum] + F("'>") + arrFileNames[fileNum] + F("</option>");       
+  yield();
+  }
+ content += F("</select>&emsp;");
+ content += (Language ? F("Новое имя") : F("New name"));
+ content += F(":&emsp;<input maxlength='30' name='nn' size='30' type='text' pattern='[a-zA-Z0-9-_.]+' required");
+ content += F("/>&emsp;<input type='submit' value='");
+ content += (Language ? F("Переименовать") : F("Rename"));
+ content += F("' /></form>");
+ // Delete
+ content += F("<form method='get' form action='/deletefile' onsubmit='warn();return false;'>");
+ content += (Language ? F("Удалить файл с настройками") : F("Delete settings file"));
+ content += F(":&emsp;<select name='file' size='1'>");
+ for ( int fileNum = 0; fileNum < numFiles; fileNum++ )
+  {
+  content += F("<option required value='"); 
+  content += arrFileNames[fileNum] + F("'>") + arrFileNames[fileNum] + F("</option>");       
+  yield();
+  }
+ content += F("</select>&emsp;<input type='submit' value='");
+ content += (Language ? F("Удалить (будьте осторожны!)") : F("Delete (be careful!)"));
+ content += F("' /></form>");
+ // Download
+ content += F("<form method='post' form action='/downloadfile'>");
+ content += (Language ? F("Выгрузить файл с настройками") : F("Download settings file"));
+ content += F(":&emsp;<select name='file' size='1'>");
+ for ( int fileNum = 0; fileNum < numFiles; fileNum++ )
+  {
+  content += F("<option required value='"); 
+  content += arrFileNames[fileNum] + F("'>") + arrFileNames[fileNum] + F("</option>");       
+  yield();
+  }
+ content += F("</select>&emsp;<input type='submit' value='");
+ content += (Language ? F("Выгрузить") : F("Download"));
+ content += F("' /></form>");
+ } // end of if ( numFiles > 0 )
+// Upload
+content += F("<form method='post' form action='/uploadfile' enctype='multipart/form-data'>");
+content += (Language ? F("Загрузить файл с настройками") : F("Upload settings file"));
+content += F(":&emsp;<input type='file' name='upload'><input type='submit' value='");
+content += (Language ? F("Загрузить") : F("Upload"));
+content += F("' /></form>");
 // Actions
-content += (Language ? F("<center><b>Действия</center></b>") : F("<center><b>Actions</center></b>"));
+content += F("<hr>");
 content += F("<form action='/firmware' form method='get'><input name='fwu' type='submit' value='");
 content += (Language ? F("Обновление прошивки") : F("Firmware update"));
 content += F("' /></form><form action='/cleartasklist' form method='get' onsubmit='warn();return false;'><input name='ctl' type='submit' value='");
@@ -818,7 +1027,7 @@ for ( int taskNum = 0; taskNum < numberOfTasks - 1; taskNum++ )
  yield(); 
  if ( taskNum != findNUM 
    && ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_ENABLED]
-   && TaskList[taskNum][TASK_ACTION]  != 0
+   && TaskList[taskNum][TASK_ACTION]  != ACTION_NOACTION
    && TaskList[taskNum][TASK_HOUR]    == TaskList[findNUM][TASK_HOUR] 
    && TaskList[taskNum][TASK_MIN]     == TaskList[findNUM][TASK_MIN]
    && TaskList[taskNum][TASK_SEC]     == TaskList[findNUM][TASK_SEC]
@@ -826,9 +1035,9 @@ for ( int taskNum = 0; taskNum < numberOfTasks - 1; taskNum++ )
     )
   {
   if ( TaskList[taskNum][TASK_DAY] == TaskList[findNUM][TASK_DAY]
-   || (TaskList[taskNum][TASK_DAY] == 7 && working_day_of_week(TaskList[findNUM][TASK_DAY]))
-   || (TaskList[taskNum][TASK_DAY] == 8 && weekend_day_of_week(TaskList[findNUM][TASK_DAY]))
-   ||  TaskList[taskNum][TASK_DAY] == 9 )
+   || (TaskList[taskNum][TASK_DAY] == TASK_DAY_WORKDAYS && working_day_of_week(TaskList[findNUM][TASK_DAY]))
+   || (TaskList[taskNum][TASK_DAY] == TASK_DAY_WEEKENDS && weekend_day_of_week(TaskList[findNUM][TASK_DAY]))
+   ||  TaskList[taskNum][TASK_DAY] == TASK_DAY_EVERYDAY )
    {
    found = ( TaskList[taskNum][TASK_ACTION] == TaskList[findNUM][TASK_ACTION] ? taskNum           // duplicate
                                                                               : taskNum + 1000 ); // conflicting
@@ -877,11 +1086,59 @@ else
   loginPass = "admin";
   }
  }
-#ifdef DEBUG
- Serial.print(F("Login = ")); Serial.print(loginName);
- Serial.print(F(" Password = ")); Serial.println(loginPass);
-#endif  
 httpUpdater.setup(&server, "/firmware", loginName, loginPass);
+}
+
+byte find_next_tasks_within_day(int findChannel, int findDOW, int hh, int mm, int ss)
+{
+int taskNum;  
+byte found = TASKLIST_MAX_NUMBER;
+if ( findDOW != curDayOfWeek ) { hh = 0; mm = 0; ss = 0; }
+for ( taskNum = 0; taskNum <= numberOfTasks - 1; taskNum++ )
+ {
+ yield(); 
+ if ( TaskList[taskNum][TASK_CHANNEL] == findChannel 
+   && ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_ENABLED]
+   && TaskList[taskNum][TASK_ACTION] != ACTION_NOACTION
+   && (
+       TaskList[taskNum][TASK_HOUR] > hh 
+   || (TaskList[taskNum][TASK_HOUR] == hh && TaskList[taskNum][TASK_MIN] > mm)
+   || (TaskList[taskNum][TASK_HOUR] == hh && TaskList[taskNum][TASK_MIN] == mm && TaskList[taskNum][TASK_SEC] >= ss)
+      )
+    )
+  {
+  if ( (TaskList[taskNum][TASK_DAY] == findDOW)
+    || (TaskList[taskNum][TASK_DAY] == TASK_DAY_WORKDAYS && working_day_of_week(findDOW))
+    || (TaskList[taskNum][TASK_DAY] == TASK_DAY_WEEKENDS && weekend_day_of_week(findDOW))
+    || (TaskList[taskNum][TASK_DAY] == TASK_DAY_EVERYDAY)
+     )
+   { found = taskNum; break; }
+  }
+ }
+return found;
+}
+
+void find_next_tasks()  
+{
+if ( !thereAreEnabledTasks ) { return; }  
+int findDOW, chNum;
+byte foundTask, DaysCounter;
+for ( chNum = 0; chNum < numberOfChannels; chNum++ )
+ {
+ yield(); 
+ if ( NumEnabledTasks[chNum] == 0 ) { continue; }
+ findDOW = curDayOfWeek;
+ foundTask = TASKLIST_MAX_NUMBER;  
+ DaysCounter = 0;
+ while ( DaysCounter < 7 ) 
+  {
+  foundTask = find_next_tasks_within_day(chNum, findDOW, curTimeHour, curTimeMin, curTimeSec);
+  if ( foundTask < TASKLIST_MAX_NUMBER ) { break; }
+  DaysCounter++;
+  if ( findDOW == 6 ) { findDOW = 0; } else { findDOW++; }
+  }
+ NextTasksList[chNum] = ( foundTask < TASKLIST_MAX_NUMBER ? foundTask : 255 ); 
+ }
 }
 
 byte check_previous_tasks_within_day(int findChannel, int findDOW, int hh, int mm, int ss)
@@ -894,7 +1151,7 @@ for ( taskNum = numberOfTasks - 1; taskNum >= 0; taskNum-- )
  yield(); 
  if ( TaskList[taskNum][TASK_CHANNEL] == findChannel 
    && ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_ENABLED]
-   && TaskList[taskNum][TASK_ACTION] != 0
+   && TaskList[taskNum][TASK_ACTION] != ACTION_NOACTION
    && (
        TaskList[taskNum][TASK_HOUR] < hh 
    || (TaskList[taskNum][TASK_HOUR] == hh && TaskList[taskNum][TASK_MIN] < mm)
@@ -903,9 +1160,9 @@ for ( taskNum = numberOfTasks - 1; taskNum >= 0; taskNum-- )
     )
   {
   if ( (TaskList[taskNum][TASK_DAY] == findDOW)
-    || (TaskList[taskNum][TASK_DAY] == 7 && working_day_of_week(findDOW))
-    || (TaskList[taskNum][TASK_DAY] == 8 && weekend_day_of_week(findDOW))
-    || (TaskList[taskNum][TASK_DAY] == 9)
+    || (TaskList[taskNum][TASK_DAY] == TASK_DAY_WORKDAYS && working_day_of_week(findDOW))
+    || (TaskList[taskNum][TASK_DAY] == TASK_DAY_WEEKENDS && weekend_day_of_week(findDOW))
+    || (TaskList[taskNum][TASK_DAY] == TASK_DAY_EVERYDAY)
      )
    { found = taskNum; break; }
   }
@@ -919,12 +1176,27 @@ if ( !thereAreEnabledTasks ) { return; }
 bool needSave = false;  
 int findDOW, chNum;
 byte foundTask, DaysCounter;
-for (chNum = 0; chNum < numberOfChannels; chNum++ )
+for ( chNum = 0; chNum < numberOfChannels; chNum++ )
  {
  yield(); 
- if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY 
-   || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY ) { continue; }
- if ( NumEnabledTasks[chNum] == 0 ) { continue; }
+ if ( NumEnabledTasks[chNum] == 0 ) 
+  {
+       if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK
+        || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150)
+          )
+   {
+   ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_MANUALLY; 
+   needSave = true;
+   }  
+  else if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK
+        || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250)
+          )
+   {
+   ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_ON_MANUALLY; 
+   needSave = true;
+   }  
+  continue;
+  }
  findDOW = curDayOfWeek;
  foundTask = TASKLIST_MAX_NUMBER;  
  DaysCounter = 0;
@@ -936,15 +1208,38 @@ for (chNum = 0; chNum < numberOfChannels; chNum++ )
   if ( findDOW == 0 ) { findDOW = 6; } else { findDOW--; }
   }
  ActiveNowTasksList[chNum] = ( foundTask < TASKLIST_MAX_NUMBER ? foundTask : 255 ); 
- if ( foundTask < TASKLIST_MAX_NUMBER
-  && (TaskList[foundTask][TASK_ACTION] == ACTION_TURN_ON) != ChannelList[chNum][CHANNEL_LASTSTATE] )
+ if ( foundTask < TASKLIST_MAX_NUMBER )
   {
-  ChannelList[chNum][CHANNEL_LASTSTATE] = (TaskList[foundTask][TASK_ACTION] == ACTION_TURN_ON);
-  log_Append(EVENT_TASK_SWITCHING, (uint8_t)chNum, foundTask, (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
-  needSave = true;
-  }
+  if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK && TaskList[foundTask][TASK_ACTION] == ACTION_TURN_ON ) 
+   {      
+   ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_ON_BY_TASK;
+   log_Append(EVENT_TASK_SWITCHING, (uint8_t)chNum, foundTask, (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
+   needSave = true;
+   }
+  else if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK && TaskList[foundTask][TASK_ACTION] == ACTION_TURN_OFF )    
+   {   
+   ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_BY_TASK;
+   log_Append(EVENT_TASK_SWITCHING, (uint8_t)chNum, foundTask, (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
+   needSave = true;
+   }
+  else if ( (ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150
+           && ActiveNowTasksList[chNum] != ChannelList[chNum][CHANNEL_LASTSTATE] - 50)
+         || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250
+           && ActiveNowTasksList[chNum] != ChannelList[chNum][CHANNEL_LASTSTATE] - 150)
+          ) 
+   {
+        if ( TaskList[foundTask][TASK_ACTION] == ACTION_TURN_ON )  { ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_ON_BY_TASK; }
+   else if ( TaskList[foundTask][TASK_ACTION] == ACTION_TURN_OFF ) { ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_BY_TASK; }
+   log_Append(EVENT_TASK_SWITCHING, (uint8_t)chNum, foundTask, (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
+   needSave = true;
+   }
+  } 
  }
-if ( needSave ) { save_channellist_to_EEPROM(); }   
+if ( needSave ) 
+ {
+ save_channellist_to_EEPROM();
+ read_channellist_from_EEPROM_and_switch_channels();
+ }   
 }
 
 void read_and_sort_tasklist_from_EEPROM()
@@ -961,22 +1256,12 @@ for ( taskNum = 0; taskNum < numberOfTasks; taskNum++ )
   TaskListRAW[taskNum][task_element_num] = EEPROM.read(taskAddress + task_element_num);
   }
  if ( TaskListRAW[taskNum][TASK_ACTION] != ACTION_NOACTION && TaskListRAW[taskNum][TASK_ACTION] != ACTION_TURN_OFF
-   && TaskListRAW[taskNum][TASK_ACTION] != ACTION_TURN_ON ) { TaskListRAW[taskNum][TASK_ACTION] = ACTION_NOACTION; }
- if ( TaskListRAW[taskNum][TASK_HOUR] > 23 ) { TaskListRAW[taskNum][TASK_HOUR] = 0; }
- if ( TaskListRAW[taskNum][TASK_MIN] > 59 )  { TaskListRAW[taskNum][TASK_MIN] = 0; }
- if ( TaskListRAW[taskNum][TASK_SEC] > 59 )  { TaskListRAW[taskNum][TASK_SEC] = 0; }
- if ( TaskListRAW[taskNum][TASK_DAY] > 9 )   { TaskListRAW[taskNum][TASK_DAY] = 9; }
+   && TaskListRAW[taskNum][TASK_ACTION] != ACTION_TURN_ON )   { TaskListRAW[taskNum][TASK_ACTION] = ACTION_NOACTION; }
+ if ( TaskListRAW[taskNum][TASK_HOUR] > 23 )                  { TaskListRAW[taskNum][TASK_HOUR] = 0; }
+ if ( TaskListRAW[taskNum][TASK_MIN] > 59 )                   { TaskListRAW[taskNum][TASK_MIN] = 0; }
+ if ( TaskListRAW[taskNum][TASK_SEC] > 59 )                   { TaskListRAW[taskNum][TASK_SEC] = 0; }
+ if ( TaskListRAW[taskNum][TASK_DAY] > TASK_DAY_EVERYDAY )    { TaskListRAW[taskNum][TASK_DAY] = TASK_DAY_EVERYDAY; }
  if ( TaskListRAW[taskNum][TASK_CHANNEL] > numberOfChannels ) { TaskListRAW[taskNum][TASK_CHANNEL] = 0; }
- #ifdef DEBUG
-  Serial.print(F("Addr="));     Serial.print(taskAddress);
-  Serial.print(F("\tTask="));   Serial.print(taskNum + 1);
-  Serial.print(F("\tCh="));     Serial.print(TaskListRAW[taskNum][TASK_CHANNEL] + 1);
-  Serial.print(F("\tAction=")); Serial.print(TaskListRAW[taskNum][TASK_ACTION]); 
-  Serial.print(F("\tHour="));   Serial.print(TaskListRAW[taskNum][TASK_HOUR]);
-  Serial.print(F("\tMinute=")); Serial.print(TaskListRAW[taskNum][TASK_MIN]);
-  Serial.print(F("\tSecond=")); Serial.print(TaskListRAW[taskNum][TASK_SEC]);
-  Serial.print(F("\tDay(s)=")); Serial.println(TaskListRAW[taskNum][TASK_DAY]);
- #endif 
  }
 // Sorting in enabled action, channel and ascending order of time
 for ( taskNum = 0; taskNum < numberOfTasks; taskNum++ ) { yield(); IndexArray[taskNum] = taskNum; } 
@@ -986,12 +1271,12 @@ for ( taskNum = 0; taskNum < numberOfTasks - 1; taskNum++ )
  for ( int bubble_num = 0; bubble_num < numberOfTasks - taskNum - 1; bubble_num++ )
   {
   yield(); 
-  if ((( TaskListRAW[IndexArray[bubble_num]][TASK_ACTION] ? 0 : 1 + 86401 * CHANNELLIST_MAX_NUMBER)
+  if ((( TaskListRAW[IndexArray[bubble_num]][TASK_ACTION] != ACTION_NOACTION ? 0 : 1 + 86401 * CHANNELLIST_MAX_NUMBER)
        + TaskListRAW[IndexArray[bubble_num]][TASK_CHANNEL] * 86401
        + TaskListRAW[IndexArray[bubble_num]][TASK_HOUR] * 3600
        + TaskListRAW[IndexArray[bubble_num]][TASK_MIN] * 60 
        + TaskListRAW[IndexArray[bubble_num]][TASK_SEC])
-    > (( TaskListRAW[IndexArray[bubble_num+1]][TASK_ACTION] ? 0 : 1 + 86401 * CHANNELLIST_MAX_NUMBER)
+    > (( TaskListRAW[IndexArray[bubble_num+1]][TASK_ACTION] != ACTION_NOACTION ? 0 : 1 + 86401 * CHANNELLIST_MAX_NUMBER)
        + TaskListRAW[IndexArray[bubble_num+1]][TASK_CHANNEL] * 86401
        + TaskListRAW[IndexArray[bubble_num+1]][TASK_HOUR] * 3600 
        + TaskListRAW[IndexArray[bubble_num+1]][TASK_MIN] * 60 
@@ -1018,8 +1303,7 @@ for ( int chNum = 0; chNum < numberOfChannels; chNum++ ) { NumEnabledTasks[chNum
 for ( int taskNum = 0; taskNum < numberOfTasks; taskNum++ )
  { 
  yield();
- if ( ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_ENABLED] 
-   && TaskList[taskNum][TASK_ACTION] != 0 )
+ if ( ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_ENABLED] && TaskList[taskNum][TASK_ACTION] != ACTION_NOACTION )
   {
   NumEnabledTasks[TaskList[taskNum][TASK_CHANNEL]]++;
   thereAreEnabledTasks = true;
@@ -1042,16 +1326,6 @@ for ( int taskNum = 0; taskNum < numberOfTasks; taskNum++ )
   if ( TaskList[taskNum][task_element_num] != EEPROM.read(taskAddress + task_element_num) )
    { EEPROM.write(taskAddress + task_element_num, TaskList[taskNum][task_element_num]); }
   }
- #ifdef DEBUG
-  Serial.print(F("Addr="));     Serial.print(taskAddress);
-  Serial.print(F("\tTask="));   Serial.print(taskNum + 1);
-  Serial.print(F("\tCh="));     Serial.print(TaskList[taskNum][TASK_CHANNEL] + 1);
-  Serial.print(F("\tAction=")); Serial.print(TaskList[taskNum][TASK_ACTION]); 
-  Serial.print(F("\tHour="));   Serial.print(TaskList[taskNum][TASK_HOUR]);
-  Serial.print(F("\tMinute=")); Serial.print(TaskList[taskNum][TASK_MIN]);
-  Serial.print(F("\tSecond=")); Serial.print(TaskList[taskNum][TASK_SEC]);
-  Serial.print(F("\tDay(s)=")); Serial.println(TaskList[taskNum][TASK_DAY]);
- #endif 
  }
 EEPROM.commit();
 read_and_sort_tasklist_from_EEPROM();
@@ -1061,27 +1335,34 @@ void read_channellist_from_EEPROM_and_switch_channels()
 {
 int chNum, ch_element_num;
 #ifdef DEBUG 
- Serial.println(F("Reading channels"));
+ Serial.println(F("Reading channels and switch channels if needed"));
 #endif
 for ( chNum = 0; chNum < numberOfChannels; chNum++ )
  {
  yield(); 
  for ( ch_element_num = 0; ch_element_num < CHANNEL_NUM_ELEMENTS; ch_element_num++ ) 
   { ChannelList[chNum][ch_element_num] = EEPROM.read(CHANNELLIST_EEPROM_ADDRESS + ch_element_num + chNum * CHANNEL_NUM_ELEMENTS); }
- if ( ChannelList[chNum][CHANNEL_GPIO] > GPIO_MAX_NUMBER || NodeMCUpins[ChannelList[chNum][CHANNEL_GPIO]] == "N/A" ) { ChannelList[chNum][CHANNEL_GPIO] = LED_BUILTIN; }
- if ( ChannelList[chNum][CHANNEL_INVERTED] != 0  && ChannelList[chNum][CHANNEL_INVERTED] != 1 )  { ChannelList[chNum][CHANNEL_INVERTED] = 0; }
- if ( ChannelList[chNum][CHANNEL_LASTSTATE] != LASTSTATE_OFF_BY_TASK 
-   && ChannelList[chNum][CHANNEL_LASTSTATE] != LASTSTATE_ON_BY_TASK 
-   && ChannelList[chNum][CHANNEL_LASTSTATE] != LASTSTATE_OFF_MANUALLY 
-   && ChannelList[chNum][CHANNEL_LASTSTATE] != LASTSTATE_ON_MANUALLY 
-    )
-  { ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_BY_TASK; }
- if ( ChannelList[chNum][CHANNEL_ENABLED] != 0 && ChannelList[chNum][CHANNEL_ENABLED] != 1 ) { ChannelList[chNum][CHANNEL_ENABLED] = 0; }
+ if ( ChannelList[chNum][CHANNEL_GPIO] > GPIO_MAX_NUMBER || NodeMCUpins[ChannelList[chNum][CHANNEL_GPIO]] == "N/A" ) 
+  { ChannelList[chNum][CHANNEL_GPIO] = LED_BUILTIN; }
+ if ( ChannelList[chNum][CHANNEL_INVERTED] != 0 && ChannelList[chNum][CHANNEL_INVERTED] != 1 )  
+  { ChannelList[chNum][CHANNEL_INVERTED] = 0; }
+ if ( ChannelList[chNum][CHANNEL_ENABLED] != 0 && ChannelList[chNum][CHANNEL_ENABLED] != 1 ) 
+  { ChannelList[chNum][CHANNEL_ENABLED] = 0; }
  pinMode(ChannelList[chNum][CHANNEL_GPIO], OUTPUT);
- if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY )
-  { digitalWrite(ChannelList[chNum][CHANNEL_GPIO], (ChannelList[chNum][CHANNEL_INVERTED] ? false : true )); }
- if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY )
-  { digitalWrite(ChannelList[chNum][CHANNEL_GPIO], (ChannelList[chNum][CHANNEL_INVERTED] ? true : false )); }
+      if (  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK 
+        ||  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY 
+        || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150) )
+  { 
+  if ( digitalRead(ChannelList[chNum][CHANNEL_GPIO]) != (ChannelList[chNum][CHANNEL_INVERTED] ? true : false ) )
+   { digitalWrite(ChannelList[chNum][CHANNEL_GPIO], (ChannelList[chNum][CHANNEL_INVERTED] ? true : false )); }
+  }
+ else if (  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK 
+        ||  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY 
+        || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250) )
+  {
+  if ( digitalRead(ChannelList[chNum][CHANNEL_GPIO]) != (ChannelList[chNum][CHANNEL_INVERTED] ? false : true ) )
+   { digitalWrite(ChannelList[chNum][CHANNEL_GPIO], (ChannelList[chNum][CHANNEL_INVERTED] ? false : true )); }
+  }
  }
 }
 
@@ -1101,19 +1382,18 @@ for ( chNum = 0; chNum < numberOfChannels; chNum++ )
   }
  }
 EEPROM.commit();
-read_channellist_from_EEPROM_and_switch_channels();
 }
 
 void setupServer()
 {
 server.on("/",[]() 
  {
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  drawHomePage(); 
  });
 server.on("/settask", []() 
  {
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  int taskNumber, param;   
  String buf;
  bool needSave = false;
@@ -1133,38 +1413,29 @@ server.on("/settask", []()
  buf = server.arg(4); param = buf.toInt(); // sec
  if ( param >= 0 && param <= 59 ) { if ( TaskList[taskNumber][TASK_SEC] != param ) { TaskList[taskNumber][TASK_SEC] = param; needSave = true; } } 
  buf = server.arg(5); param = buf.toInt(); // day(s)
- if ( param >= 0 && param <= 9 )  { if ( TaskList[taskNumber][TASK_DAY] != param ) { TaskList[taskNumber][TASK_DAY] = param; needSave = true; } }
- #ifdef DEBUG
-  Serial.print(F("Set task ")); Serial.println(taskNumber + 1);
-  Serial.print(F("Ch="));       Serial.print(TaskList[taskNumber][TASK_CHANNEL] + 1);
-  Serial.print(F("\tAction=")); Serial.print(TaskList[taskNumber][TASK_ACTION]); 
-  Serial.print(F("\tHour="));   Serial.print(TaskList[taskNumber][TASK_HOUR]);
-  Serial.print(F("\tMinute=")); Serial.print(TaskList[taskNumber][TASK_MIN]);
-  Serial.print(F("\tSecond=")); Serial.print(TaskList[taskNumber][TASK_SEC]);
-  Serial.print(F("\tDay(s)=")); Serial.println(TaskList[taskNumber][TASK_DAY]);
- #endif 
- if ( needSave ) { save_tasks_to_EEPROM(); check_previous_tasks(); }  
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
+ if ( param >= 0 && param <= TASK_DAY_EVERYDAY )  { if ( TaskList[taskNumber][TASK_DAY] != param ) { TaskList[taskNumber][TASK_DAY] = param; needSave = true; } }
+ if ( needSave ) { save_tasks_to_EEPROM(); check_previous_tasks(); find_next_tasks(); }
+ ServerSendMessageAndRefresh();
  }); 
 server.on("/cleartasklist", []()
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  for ( int taskNum = 0; taskNum < numberOfTasks; taskNum++ )
   { 
   yield(); 
-  TaskList[taskNum][TASK_ACTION] = 0; 
+  TaskList[taskNum][TASK_ACTION] = ACTION_NOACTION; 
   TaskList[taskNum][TASK_HOUR] = 0; 
   TaskList[taskNum][TASK_MIN] = 0; 
   TaskList[taskNum][TASK_SEC] = 0; 
-  TaskList[taskNum][TASK_DAY] = 9;
+  TaskList[taskNum][TASK_DAY] = TASK_DAY_EVERYDAY;
   TaskList[taskNum][TASK_CHANNEL] = 0;
   }
  save_tasks_to_EEPROM(); 
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
+ ServerSendMessageAndRefresh();
  }); 
 server.on("/setnumberOfTasks", []() 
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  String buf = server.arg(0);
  int param = buf.toInt();
  if ( param >= TASKLIST_MIN_NUMBER && param <= TASKLIST_MAX_NUMBER ) 
@@ -1172,17 +1443,14 @@ server.on("/setnumberOfTasks", []()
      {
      numberOfTasks = param; 
      EEPROM.write(NUMBER_OF_TASKS_EEPROM_ADDRESS, numberOfTasks); EEPROM.commit();
-     server.send(200, "text/html; charset=utf-8", (Language ? F("<META http-equiv=\'refresh\' content=\'15;URL=/\'> Перезагрузка...") : F("<META http-equiv=\'refresh\' content=\'15;URL=/\'> Rebooting..."))); 
-     delay(500);
-     server.stop();
-     ESP.restart(); 
+     ServerSendMessageAndReboot();
      }
   } 
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
+ ServerSendMessageAndRefresh();
  }); 
 server.on("/setnumberOfChannels", []() 
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  String buf = server.arg(0);
  int param = buf.toInt();
  if ( param >= CHANNELLIST_MIN_NUMBER && param <= CHANNELLIST_MAX_NUMBER ) 
@@ -1190,52 +1458,145 @@ server.on("/setnumberOfChannels", []()
      {
      numberOfChannels = param; 
      EEPROM.write(NUMBER_OF_CHANNELS_EEPROM_ADDRESS, numberOfChannels); EEPROM.commit();
-     server.send(200, "text/html; charset=utf-8", (Language ? F("<META http-equiv=\'refresh\' content=\'15;URL=/\'> Перезагрузка...") : F("<META http-equiv=\'refresh\' content=\'15;URL=/\'> Rebooting..."))); 
-     delay(500);
-     server.stop();
-     ESP.restart(); 
+     ServerSendMessageAndReboot();
      }
   } 
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
+ ServerSendMessageAndRefresh();
  });
 server.on("/setchannelstateon", []()
  {
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  int chNum;
  String buf = server.argName(0);
  buf = buf.substring(1);
  chNum = buf.toInt();
  ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_ON_MANUALLY;
- log_Append(EVENT_MANUAL_SWITCHING, chNum, 0, LASTSTATE_ON_MANUALLY - 2);
+ log_Append(EVENT_MANUAL_SWITCHING, chNum, 0, 1);
  save_channellist_to_EEPROM(); 
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
+ read_channellist_from_EEPROM_and_switch_channels();
+ ServerSendMessageAndRefresh();
  }); 
 server.on("/setchannelstateoff", []()
  {
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  int chNum;
  String buf = server.argName(0);
  buf = buf.substring(1);
  chNum = buf.toInt();
  ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_MANUALLY;
- log_Append(EVENT_MANUAL_SWITCHING, chNum, 0, LASTSTATE_OFF_MANUALLY - 2);
+ log_Append(EVENT_MANUAL_SWITCHING, chNum, 0, 0);
  save_channellist_to_EEPROM(); 
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
+ read_channellist_from_EEPROM_and_switch_channels();
+ ServerSendMessageAndRefresh();
  }); 
-server.on("/setchannelbytasks", []()
+server.on("/setchannelstateonuntil", []()
  {
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  int chNum;
  String buf = server.argName(0);
  buf = buf.substring(1);
  chNum = buf.toInt();
- ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_BY_TASK;
- save_channellist_to_EEPROM(); 
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
+ if ( ActiveNowTasksList[chNum] <= numberOfTasks )
+  {
+  ChannelList[chNum][CHANNEL_LASTSTATE] = ActiveNowTasksList[chNum] + 150;
+  log_Append(EVENT_MANUAL_SWITCHING, chNum, 0, 1);
+  save_channellist_to_EEPROM(); 
+  read_channellist_from_EEPROM_and_switch_channels();
+  }
+ ServerSendMessageAndRefresh();
+ }); 
+server.on("/setchannelstateoffuntil", []()
+ {
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ int chNum;
+ String buf = server.argName(0);
+ buf = buf.substring(1);
+ chNum = buf.toInt();
+ if ( ActiveNowTasksList[chNum] <= numberOfTasks )
+  {
+  ChannelList[chNum][CHANNEL_LASTSTATE] = ActiveNowTasksList[chNum] + 50;
+  log_Append(EVENT_MANUAL_SWITCHING, chNum, 0, 0);
+  save_channellist_to_EEPROM(); 
+  read_channellist_from_EEPROM_and_switch_channels();
+  }
+ ServerSendMessageAndRefresh();
+ }); 
+server.on("/setchannelmanually", []()
+ {
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ int chNum;
+ String buf = server.argName(0);
+ buf = buf.substring(1);
+ chNum = buf.toInt();
+      if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK
+       || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150) )
+       {
+       ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_MANUALLY;
+       save_channellist_to_EEPROM(); 
+       read_channellist_from_EEPROM_and_switch_channels();
+       }
+ else if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK
+       || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250) )
+       {
+       ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_ON_MANUALLY;
+       save_channellist_to_EEPROM(); 
+       read_channellist_from_EEPROM_and_switch_channels();
+       }
+ ServerSendMessageAndRefresh();
+ }); 
+server.on("/setchanneluntil", []()
+ {
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ int chNum;
+ String buf = server.argName(0);
+ buf = buf.substring(1);
+ chNum = buf.toInt();
+ if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY )
+  { 
+  if ( ActiveNowTasksList[chNum] <= numberOfTasks )
+   {
+   ChannelList[chNum][CHANNEL_LASTSTATE] = ActiveNowTasksList[chNum] + 50; 
+   save_channellist_to_EEPROM(); 
+   read_channellist_from_EEPROM_and_switch_channels();
+   }
+  }
+ if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY ) 
+  {
+  if ( ActiveNowTasksList[chNum] <= numberOfTasks )
+   {
+   ChannelList[chNum][CHANNEL_LASTSTATE] = ActiveNowTasksList[chNum] + 150; 
+   save_channellist_to_EEPROM(); 
+   read_channellist_from_EEPROM_and_switch_channels();
+   }
+  }
+ ServerSendMessageAndRefresh();
+ }); 
+server.on("/setchannelbytasks", []()
+ {
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ int chNum;
+ String buf = server.argName(0);
+ buf = buf.substring(1);
+ chNum = buf.toInt();
+      if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY
+       || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150) )
+       {
+       ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_BY_TASK;
+       save_channellist_to_EEPROM();
+       read_channellist_from_EEPROM_and_switch_channels();
+       } 
+ else if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY
+       || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250) )
+       {
+       ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_ON_BY_TASK;
+       save_channellist_to_EEPROM();
+       read_channellist_from_EEPROM_and_switch_channels();
+       } 
+ ServerSendMessageAndRefresh();
  }); 
 server.on("/setchannelparams", []() 
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  bool needSave = false;
  int chNum, param;
  String buf = server.argName(0);
@@ -1244,9 +1605,12 @@ server.on("/setchannelparams", []()
  buf = server.arg(0);
  param = buf.toInt();
  if ( param == 10 || param == 11 ) 
-  { if ( ((!ChannelList[chNum][CHANNEL_ENABLED]) && param == 11) || (ChannelList[chNum][CHANNEL_ENABLED] && param == 10) ) 
+  { if ( ((!ChannelList[chNum][CHANNEL_ENABLED]) && param == ACTION_TURN_ON) 
+        || (ChannelList[chNum][CHANNEL_ENABLED]  && param == ACTION_TURN_OFF) ) 
      {
-     ChannelList[chNum][CHANNEL_ENABLED] = ( param == 10 ? 0 : 1 ); 
+     ChannelList[chNum][CHANNEL_ENABLED] = ( param == ACTION_TURN_OFF ? 0 : 1 ); 
+     if ( NumEnabledTasks[chNum] > 0 ) { ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_BY_TASK; }
+                                  else { ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_MANUALLY; }
      needSave = true;
      }
   } 
@@ -1268,12 +1632,16 @@ server.on("/setchannelparams", []()
      needSave = true;
      }
   } 
- if ( needSave ) { save_channellist_to_EEPROM(); } 
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
+ if ( needSave ) 
+  {
+  save_channellist_to_EEPROM(); 
+  read_channellist_from_EEPROM_and_switch_channels(); 
+  } 
+ ServerSendMessageAndRefresh();
  }); 
 server.on("/setlanguage", []() 
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  String buf = server.arg(0);
  int param = buf.toInt();
  if ( param == 10 || param == 11 ) 
@@ -1284,11 +1652,11 @@ server.on("/setlanguage", []()
      EEPROM.commit();
      }
   }  
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
+ ServerSendMessageAndRefresh();
  }); 
 server.on("/setntpTimeZone", []() 
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  String buf = server.arg(0);
  int param = buf.toInt();
  if ( ntpTimeZone != param ) 
@@ -1296,16 +1664,13 @@ server.on("/setntpTimeZone", []()
   ntpTimeZone = param; 
   timeClient.setTimeOffset(ntpTimeZone * 3600);
   EEPROM.write(NTP_TIME_ZONE_EEPROM_ADDRESS, ntpTimeZone + 12); EEPROM.commit();
-  server.send(200, "text/html; charset=utf-8", (Language ? F("<META http-equiv=\'refresh\' content=\'15;URL=/\'> Перезагрузка...") : F("<META http-equiv=\'refresh\' content=\'15;URL=/\'> Rebooting..."))); 
-  delay(500);
-  server.stop();
-  ESP.restart(); 
+  ServerSendMessageAndReboot();
   }
-server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
+ ServerSendMessageAndRefresh();
  }); 
 server.on("/setlogin", []() 
  {
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  String qlogin = server.arg(0);
  String qpass1 = server.arg(1);
  String oldpass = server.arg(3);
@@ -1317,122 +1682,210 @@ server.on("/setlogin", []()
   for ( unsigned int i = 0; i < qpass1.length(); ++i ) { EEPROM.write(i + LOGIN_NAME_PASS_EEPROM_ADDRESS + 11, qpass1[i]); }
   EEPROM.commit();
   read_login_pass_from_EEPROM();
-  server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
+  ServerSendMessageAndRefresh();
   }
- else { server.send(200, "text/html", F("<META http-equiv=\"refresh\" content=\"5;URL=/\"> Incorrect data or passwords do not match...")); }
+ else { ServerSendMessageAndRefresh( 3, "/", (Language ? F("Неверные данные или пароли не совпадают...") : F("Incorrect data or passwords do not match...")) ); }
  });  
+server.on("/savesettings", []() 
+ {
+ if ( !littleFS_OK ) { return; }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ String fileName = server.arg(0);
+ File f = LittleFS.open(fileName, "w");
+ if ( f ) 
+  {
+  for ( int i = 0; i < (TASKLIST_EEPROM_ADDRESS + TASKLIST_MAX_NUMBER * TASK_NUM_ELEMENTS); i++ )
+   { 
+   uint8_t b = EEPROM.read(i);
+   f.write((uint8_t *)&b, sizeof(b));
+   }   
+  f.close();
+  ServerSendMessageAndRefresh( 3, "/", (Language ? F("Сохранено в файл ") : F("Saved to file ")), fileName );
+  }
+ else { ServerSendMessageAndRefresh( 3, "/", (Language ? F("ОШИБКА !") : F("ERROR !")) ); }
+ });  
+server.on("/restoresettings", []() 
+ {
+ if ( !littleFS_OK ) { return; }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ String fileName = server.arg(0);
+ File f = LittleFS.open(fileName, "r");
+ if ( f ) 
+  {
+  uint8_t b = f.read();
+  if ( b == FIRST_RUN_SIGNATURE )
+   {
+   f.seek(0, SeekSet);
+   int i = 0;
+   while ( f.available() )
+    { 
+    b = f.read();
+    EEPROM.write(i, b);
+    i++;
+    if ( i >= (TASKLIST_EEPROM_ADDRESS + TASKLIST_MAX_NUMBER * TASK_NUM_ELEMENTS) ) { break; }
+    }   
+   f.close();
+   EEPROM.commit();
+   ServerSendMessageAndReboot();
+   }
+  else
+   {
+   f.close();
+   ServerSendMessageAndRefresh( 3, "/", (Language ? F("Неверный файл...") : F("Incorrect file...")) );
+   }
+  }
+ else { ServerSendMessageAndRefresh( 3, "/", (Language ? F("ОШИБКА !") : F("ERROR !")) ); }
+ });  
+server.on("/renamefile", []() 
+ {
+ if ( !littleFS_OK ) { return; }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ String oldName = server.arg(0);
+ String newName = server.arg(1);
+ if ( LittleFS.rename(oldName, newName) )
+  { ServerSendMessageAndRefresh( 3, "/", (Language ? F("Переименован файл ") : F("Renamed file ")), oldName, (Language ? F(" в ") : F(" to ")), newName); }
+ else 
+  { ServerSendMessageAndRefresh( 3, "/", (Language ? F("ОШИБКА !") : F("ERROR !")) ); }
+ });  
+server.on("/deletefile", []() 
+ {
+ if ( !littleFS_OK ) { return; }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ String fileName = server.arg(0);
+ if ( LittleFS.exists(fileName) ) 
+  {
+  LittleFS.remove(fileName);
+  ServerSendMessageAndRefresh( 3, "/", (Language ? F("Удален файл ") : F("Deleted file ")), fileName );
+  }
+ else { ServerSendMessageAndRefresh( 3, "/", (Language ? F("ОШИБКА !") : F("ERROR !")) ); }
+ });  
+server.on("/downloadfile", HTTP_POST, []()
+ {
+ if ( !littleFS_OK ) { return; }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ String fileName = server.arg(0);
+ if ( LittleFS.exists(fileName) ) 
+  {
+  File downloadHandle = LittleFS.open("/" + fileName, "r");
+  if ( downloadHandle )
+   {
+   server.sendHeader("Content-Type", "text/text");
+   server.sendHeader("Content-Disposition", "attachment; filename=" + fileName);
+   server.sendHeader("Connection", "close");
+   server.streamFile(downloadHandle, "application/octet-stream");
+   downloadHandle.close();
+   } 
+  }
+ else { ServerSendMessageAndRefresh( 3, "/", (Language ? F("ОШИБКА !") : F("ERROR !")) ); }
+ });
+server.onFileUpload(handleFileUpload);
+server.on("/uploadfile", HTTP_POST, []()
+ {
+ ServerSendMessageAndRefresh( 3, "/", (Language ? F("Файл загружен") : F("File downloaded") ));
+ });
 server.on("/reset", []()  
  {
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  EEPROMWriteInt(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS, 0); 
- server.send(200, "text/html; charset=utf-8", (Language ? F("<META http-equiv=\'refresh\' content=\'15;URL=/\'> Перезагрузка...") : F("<META http-equiv=\'refresh\' content=\'15;URL=/\'> Rebooting..."))); 
- delay(500);
- server.stop();
- ESP.restart(); 
+ ServerSendMessageAndReboot();
  }); 
 server.on("/restart", []()  
  {
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
- server.send(200, "text/html; charset=utf-8", (Language ? F("<META http-equiv=\'refresh\' content=\'15;URL=/\'> Перезагрузка...") : F("<META http-equiv=\'refresh\' content=\'15;URL=/\'> Rebooting..."))); 
- delay(500);
- server.stop();
- ESP.restart(); 
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ ServerSendMessageAndReboot();
  }); 
 server.on("/viewlog", []()
  { 
  log_ViewDate = curEpochTime;
  log_CalcForViewDate();
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/log\">"));
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ ServerSendMessageAndRefresh( 0, LOG_DIR );
  }); 
 server.on("/log",[]() 
  {
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  drawLOG(); 
  });
 server.on("/log_first", []()
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  log_StartRecord = log_NumRecords; 
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/log\">"));
+ ServerSendMessageAndRefresh( 0, LOG_DIR );
  });
 server.on("/log_previous", []()
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  log_StartRecord += log_ViewStep; 
  if ( log_StartRecord > log_NumRecords ) { log_StartRecord = log_NumRecords; }
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/log\">"));
+ ServerSendMessageAndRefresh( 0, LOG_DIR );
  });
 server.on("/log_next", []()
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  log_StartRecord -= log_ViewStep; 
  if ( log_StartRecord < 1 ) { log_StartRecord = log_ViewStep; }
  if ( log_StartRecord > log_NumRecords ) { log_StartRecord = log_NumRecords; }
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/log\">"));
+ ServerSendMessageAndRefresh( 0, LOG_DIR );
  });
 server.on("/log_last", []()
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  log_StartRecord = log_ViewStep; 
  if ( log_StartRecord > log_NumRecords ) { log_StartRecord = log_NumRecords; }
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/log\">"));
+ ServerSendMessageAndRefresh( 0, LOG_DIR );
  });
 server.on("/log_incdate", []()
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  log_ViewDate += SECS_PER_DAY;
  log_CalcForViewDate();
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/log\">"));
+ ServerSendMessageAndRefresh( 0, LOG_DIR );
  });
 server.on("/log_decdate", []()
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  log_ViewDate -= SECS_PER_DAY;
  log_CalcForViewDate();
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/log\">"));
+ ServerSendMessageAndRefresh( 0, LOG_DIR );
  });
 server.on("/log_setdate", []()
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  String buf = server.arg(0); // YYYY-MM-DD
  int y = (buf.substring(0,4)).toInt();
  int m = (buf.substring(5,7)).toInt();
  int d = (buf.substring(8,10)).toInt();
  log_ViewDate = makeTime(y - 1970, m, d, 12, 0, 0);
  log_CalcForViewDate();
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/log\">"));
+ ServerSendMessageAndRefresh( 0, LOG_DIR );
  });
 server.on("/log_return", []()
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
- server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/\">"));
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ ServerSendMessageAndRefresh();
  });
 server.on("/setlog_DaysToKeep", []()
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  String buf = server.arg(0);
  int param = buf.toInt();
  if ( log_DaysToKeep != param ) 
   {
   log_DaysToKeep = param; 
   EEPROM.write(LOG_DAYSTOKEEP_EEPROM_ADDRESS, log_DaysToKeep); EEPROM.commit();
-  server.send(200, "text/html; charset=utf-8", (Language ? F("<META http-equiv=\'refresh\' content=\'15;URL=/\'> Перезагрузка...") : F("<META http-equiv=\'refresh\' content=\'15;URL=/\'> Rebooting..."))); 
-  delay(500);
-  server.stop();
-  ESP.restart(); 
+  ServerSendMessageAndReboot();
   }
  });
 server.on("/setlog_ViewStep", []()
  { 
- if (!server.authenticate(loginName.c_str(), loginPass.c_str())) { return server.requestAuthentication(); }
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  String buf = server.arg(0);
  int param = buf.toInt();
  if ( log_ViewStep != param ) 
   {
   log_ViewStep = param; 
   EEPROM.write(LOG_VIEWSTEP_EEPROM_ADDRESS, log_ViewStep); EEPROM.commit();
-  server.send(200, "text/html; charset=utf-8", F("<META http-equiv=\"refresh\" content=\"0;URL=/log\">"));
+  ServerSendMessageAndRefresh( 0, LOG_DIR );
   }
  });
 }
@@ -1443,11 +1896,11 @@ void setup()
  Serial.begin(9600, SERIAL_8N1, SERIAL_TX_ONLY);
  Serial.println();
  Serial.println(F("Versatile timer started"));
- Serial.println(F("Inizializing FS..."));
+ Serial.println(F("Inizializing LittleFS..."));
 #endif 
-log_OK = LittleFS.begin();
+littleFS_OK = LittleFS.begin();
 #ifdef DEBUG 
- if ( log_OK ) { Serial.println(F("done.")); } else { Serial.println(F("FAIL!")); }
+ if ( littleFS_OK ) { Serial.println(F("done.")); } else { Serial.println(F("FAIL!")); }
 #endif 
 EEPROM.begin(TASKLIST_EEPROM_ADDRESS);
 // Check signature to verify the first run on the device and prepare EEPROM
@@ -1469,7 +1922,7 @@ if ( EEPROMReadInt(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS) != FIRST_RUN_SIGNATURE )
  EEPROM.commit();
  EEPROM.end();
  #ifdef DEBUG 
-  Serial.println(F("Preparing LittleFileSystem for log"));
+  Serial.println(F("Formatting LittleFS"));
  #endif   
  LittleFS.format();
  #ifdef DEBUG 
@@ -1493,16 +1946,22 @@ TaskList = new uint8_t*[numberOfTasks];
 for ( int taskNum = 0; taskNum < numberOfTasks; taskNum++ ) { yield(); TaskList[taskNum] = new uint8_t[TASK_NUM_ELEMENTS]; }
 numberOfChannels = EEPROM.read(NUMBER_OF_CHANNELS_EEPROM_ADDRESS);
 if ( numberOfChannels < CHANNELLIST_MIN_NUMBER || numberOfChannels > CHANNELLIST_MAX_NUMBER ) { numberOfChannels = CHANNELLIST_MIN_NUMBER; }
+EEPROM.end();
 ChannelList = new uint8_t*[numberOfChannels];
 for ( int chNum = 0; chNum < numberOfChannels; chNum++ ) 
- { yield(); ChannelList[chNum] = new uint8_t[CHANNEL_NUM_ELEMENTS]; ActiveNowTasksList[chNum] = 255; NumEnabledTasks[chNum] = 0; }
-EEPROM.end();
+ {
+ yield(); 
+ ChannelList[chNum] = new uint8_t[CHANNEL_NUM_ELEMENTS];
+ ActiveNowTasksList[chNum] = 255;
+ NextTasksList[chNum] = 255;
+ NumEnabledTasks[chNum] = 0;
+ }
 EEPROM.begin(TASKLIST_EEPROM_ADDRESS + numberOfTasks * TASK_NUM_ELEMENTS);
 read_login_pass_from_EEPROM();
 read_channellist_from_EEPROM_and_switch_channels();
 read_and_sort_tasklist_from_EEPROM();
 //
-#ifdef FIXED_IP_ADDRESSES 
+#ifdef USE_FIXED_IP_ADDRESSES 
  if ( !WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS) )
   {
   #ifdef DEBUG
@@ -1511,16 +1970,15 @@ read_and_sort_tasklist_from_EEPROM();
   #endif 
   }
 #endif
-WiFi.begin();
-delay(500);
 WiFi.mode(WIFI_STA);
-WiFi.softAPdisconnect(true);
-#ifdef DEBUG 
- Serial.println();
- Serial.println(F("Connecting to saved AP..."));
-#endif
+WiFi.begin(AP_SSID, AP_PASS);
+delay(500);
 int ct = 60;
-while ( WiFi.status() != WL_CONNECTED && (ct > 0) ) 
+#ifdef DEBUG 
+ Serial.print(F("Connecting to "));
+ Serial.println(AP_SSID);
+#endif
+while ( WiFi.status() != WL_CONNECTED && (ct > 0) )
  {
  yield(); delay(500); ct--;
  #ifdef DEBUG 
@@ -1530,40 +1988,20 @@ while ( WiFi.status() != WL_CONNECTED && (ct > 0) )
 #ifdef DEBUG 
  Serial.println();
 #endif
-// if not autoconnected
-statusWiFi = ( WiFi.status() == WL_CONNECTED );
-if ( !statusWiFi )
- {
- #ifdef DEBUG 
-  Serial.print(F("Connecting to "));
-  Serial.println(AP_SSID);
- #endif
- WiFi.begin(AP_SSID, AP_PASS);
- int ct = 60;
- while ( WiFi.status() != WL_CONNECTED && (ct > 0) )
-  {
-  yield(); delay(500); ct--;
-  #ifdef DEBUG 
-   Serial.print(F("."));
-  #endif
-  }
- #ifdef DEBUG 
-  Serial.println();
- #endif
- }
 statusWiFi = ( WiFi.status() == WL_CONNECTED );
 #ifdef DEBUG 
  if ( statusWiFi ) 
   {
   Serial.print(F("Connected to ")); Serial.println(AP_SSID);
   Serial.print(F("MAC address ")); Serial.println(WiFi.macAddress());
-  Serial.print(F("Server can be accessed at http://")); Serial.print(WiFi.localIP());
-  Serial.print(F(" or at http://")); Serial.print(MDNSID); Serial.println(F(".local"));
+  Serial.print(F("Server can be accessed at http://")); Serial.println(WiFi.localIP());
+  Serial.print(F("                    or at http://")); Serial.print(MDNSHOST); Serial.println(F(".local"));
   }
  else { Serial.println(F("WiFi NOT connected now.")); }
 #endif
 if ( !WiFi.getAutoConnect() ) WiFi.setAutoConnect(true);
 WiFi.setAutoReconnect(true);
+WiFi.persistent(true);
 //
 counterOfReboots = EEPROMReadInt(COUNTER_OF_REBOOTS_EEPROM_ADDRESS);
 if ( counterOfReboots < 0 || counterOfReboots > 32766 ) { counterOfReboots = 0; }
@@ -1574,7 +2012,7 @@ timeClient.begin();
 timeClient.setTimeOffset(ntpTimeZone * 3600);
 setupServer();
 server.begin();
-MDNS.begin(MDNSID);
+if ( MDNS.begin(MDNSHOST) ) {  MDNS.addService("http", "tcp", 80); }
 ESP.wdtEnable(WDTO_8S);
 everySecondTimer = millis();
 CheckTaskListTimer = millis();
@@ -1587,6 +2025,7 @@ statusWiFi = ( WiFi.status() == WL_CONNECTED );
 if ( statusWiFi ) 
  {
  server.handleClient();
+ MDNS.update();
  timeSyncOK = timeClient.update(); 
  } 
 else { timeSyncOK = false; }
@@ -1605,16 +2044,13 @@ if ( timeSyncOK )
   curTimeMin   = timeClient.getMinutes();
   curTimeSec   = timeClient.getSeconds();
   curDayOfWeek = timeClient.getDay(); // 0 - Sunday, 1...5 - Monday...Friday, 6 - Saturday
-  struct tm *ptm = gmtime((time_t *)&curEpochTime); 
-  curDateDay   = ptm->tm_mday;
-  curDateMonth = ptm->tm_mon + 1;
-  curDateYear  = ptm->tm_year + 1900;
   if ( !timeSyncInitially ) 
    {
    check_previous_tasks(); 
+   find_next_tasks();
    timeClient.setUpdateInterval(NTPUPDATEINTERVAL);
    timeSyncInitially = true;
-   if ( log_OK ) { log_process(); }
+   if ( littleFS_OK ) { log_process(); }
    log_Append(EVENT_START,0,0,0);
    }
   }
@@ -1642,20 +2078,16 @@ if ( millis() - everySecondTimer > 1000 )
     }
    setClockelapsedMillis -= 1000;
    }
-  struct tm *ptm = gmtime((time_t *)&curEpochTime); 
-  curDateDay   = ptm->tm_mday;
-  curDateMonth = ptm->tm_mon + 1;
-  curDateYear  = ptm->tm_year + 1900;
   timeSyncOK = true; 
   } 
- if ( log_OK && timeSyncInitially ) { log_process(); }
+ if ( littleFS_OK && timeSyncInitially ) { log_process(); }
  setClockpreviousMillis = setClockcurrentMillis; 
  everySecondTimer = millis(); 
  } 
 //
 if ( millis() - CheckTaskListTimer > 500 )
  {
- if ( thereAreEnabledTasks && timeSyncOK ) { check_previous_tasks(); } 
+ if ( timeSyncOK ) { check_previous_tasks(); find_next_tasks(); } 
  CheckTaskListTimer = millis();
  }
 }
