@@ -54,6 +54,11 @@ Rebooting via the web interface.
 
 With Multicast DNS (mDNS) available as host vt.local.
 
+![WEB-InterfaceE01](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceE01.jpg?raw=true)
+![WEB-InterfaceE02](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceE02.jpg?raw=true)
+![WEB-InterfaceE03](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceE03.jpg?raw=true)
+![WEB-InterfaceE04](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceE04.jpg?raw=true)
+
 # VersatileTimer
 
 **Универсальный многоканальный недельный и/или суточный программируемый таймер.** 
@@ -107,3 +112,9 @@ With Multicast DNS (mDNS) available as host vt.local.
 Перезагрузка через веб-интерфейс.
 
 При наличии Multicast DNS (mDNS) доступен как хост vt.local.
+
+![WEB-InterfaceR01](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR01.jpg?raw=true)
+![WEB-InterfaceR02](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR02.jpg?raw=true)
+![WEB-InterfaceR03](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR03.jpg?raw=true)
+![WEB-InterfaceR04](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR04.jpg?raw=true)
+
