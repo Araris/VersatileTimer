@@ -1,7 +1,7 @@
 // Tested on Arduino IDE 1.8.8, 1.8.11, 1.8.16
 // Tested on NodeMCU 1.0 (ESP-12E Module) and on Generic ESP8266 Module
 
-//#define DEBUG 1
+#define DEBUG 1
 
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
@@ -20,33 +20,46 @@
 //
 #include "Secrets.h"
 //
-//#define USE_FIXED_IP_ADDRESSES 1
-#ifdef USE_FIXED_IP_ADDRESSES 
- IPAddress local_IP(192, 168, 1, 111);
- IPAddress gateway(192, 168, 1, 1);
- IPAddress subnet(255, 255, 0, 0);
- IPAddress primaryDNS(8, 8, 8, 8);
- IPAddress secondaryDNS(8, 8, 4, 4);
-#endif
-#define POOL_SERVER_NAME                          "europe.pool.ntp.org" // timeClient poolServerName
-#define MDNSHOST                                  "VT" // mDNS host
-#define FIRST_RUN_SIGNATURE_EEPROM_ADDRESS         0 // int FIRST_RUN_SIGNATURE
+#define NTP_SERVER_NAME        "europe.pool.ntp.org" // default value for String ntpServerName
+#define MDNSHOST                                "VT" // mDNS host (+ ".local")
+#define APMODE_SSID                       "VT_SETUP" // SSID in AP mode
+#define APMODE_PASSWORD                  "319319319" // password in AP mode
+///////////////////////////////////////// EEPROM map
+#define FIRST_RUN_SIGNATURE_EEPROM_ADDRESS         0 // byte FIRST_RUN_SIGNATURE
+#define ACCESS_POINT_SIGNATURE_EEPROM_ADDRESS      1 // byte ACCESS_POINT_SIGNATURE
+                                               //  2 // not used
+#define CHANNELLISTCOLLAPSED_EEPROM_ADDRESS        3 // boolean ChannelListCollapsed
 #define LANGUAGE_EEPROM_ADDRESS                    4 // boolean Language
 #define LOG_DAYSTOKEEP_EEPROM_ADDRESS              5 // byte log_DaysToKeep
 #define LOG_VIEWSTEP_EEPROM_ADDRESS                6 // byte log_ViewStep
+#define TASKLISTCOLLAPSED_EEPROM_ADDRESS           7 // boolean TaskListCollapsed
 #define COUNTER_OF_REBOOTS_EEPROM_ADDRESS          8 // int counterOfReboots
 #define NUMBER_OF_TASKS_EEPROM_ADDRESS            10 // byte numberOfTasks
 #define NTP_TIME_ZONE_EEPROM_ADDRESS              11 // byte 1...24 (int ntpTimeZone + 12)
-#define NTP_DEFAULT_TIME_ZONE                      3
 #define NUMBER_OF_CHANNELS_EEPROM_ADDRESS         12 // byte numberOfChannels
-#define LOGIN_NAME_PASS_EEPROM_ADDRESS            16 // (16-26) String loginName from LOGIN_NAME_PASS_EEPROM_ADDRESS to LOGIN_NAME_PASS_EEPROM_ADDRESS + 10
-                                                     // (27-39) String loginPass from LOGIN_NAME_PASS_EEPROM_ADDRESS + 11 to LOGIN_NAME_PASS_EEPROM_ADDRESS + 22
-#define CHANNELLIST_EEPROM_ADDRESS                40 // byte ChannelList from CHANNELLIST_EEPROM_ADDRESS to CHANNELLIST_EEPROM_ADDRESS + CHANNELLIST_MAX_NUMBER * CHANNEL_NUM_ELEMENTS
-#define TASKLIST_EEPROM_ADDRESS                  100 // byte TaskList from TASKLIST_EEPROM_ADDRESS to TASKLIST_EEPROM_ADDRESS + numberOfTasks * TASK_NUM_ELEMENTS
-#define FIRST_RUN_SIGNATURE                      139 // (0x8B) two-byte signature to verify the first run on the device and prepare EEPROM
+#define NTP_DAYLIGHTSAVEZONE_EEPROM_ADDRESS       13 // byte ntpDaylightSaveZone
+#define NTP_DAYLIGHTSAVE_EEPROM_ADDRESS           14 // boolean ntpDaylightSave
+#define WIFI_MANUALLY_SET_EEPROM_ADDRESS          15 // boolean wifiManuallySetAddresses  0-use DHCP, 1-fixed addresses
+#define LOGIN_NAME_EEPROM_ADDRESS                 16 // 16..26 - String loginName (max 10 chars)
+#define LOGIN_PASS_EEPROM_ADDRESS                 27 // 27..39 - String loginPass (max 12 chars)
+#define CHANNELLIST_EEPROM_ADDRESS                40 // 40..88 - byte ChannelList from CHANNELLIST_EEPROM_ADDRESS to CHANNELLIST_EEPROM_ADDRESS + CHANNELLIST_MAX_NUMBER * CHANNEL_NUM_ELEMENTS
+                                              //  89..99 // not used
+#define TASKLIST_EEPROM_ADDRESS                  100 // 100..700 - byte TaskList from TASKLIST_EEPROM_ADDRESS to TASKLIST_EEPROM_ADDRESS + numberOfTasks * TASK_NUM_ELEMENTS
+#define AP_SSID_EEPROM_ADDRESS                   701 // 701..764 - String AP_name (max 63 chars)
+#define AP_PASS_EEPROM_ADDRESS                   765 // 765..797 - String AP_pass (max 32 chars)
+#define NTP_TIME_SERVER_EEPROM_ADDRESS           798 // 798..830 - String ntpServerName (max 32 chars)
+#define WIFI_MANUALLY_SET_IP_EEPROM_ADDRESS      831 // 831..834 - IPAddress wifiManuallySetIP
+#define WIFI_MANUALLY_SET_DNS_EEPROM_ADDRESS     835 // 835..838 - IPAddress wifiManuallySetDNS
+#define WIFI_MANUALLY_SET_GW_EEPROM_ADDRESS      839 // 839..842 - IPAddress wifiManuallySetGW
+#define WIFI_MANUALLY_SET_SUBNET_EEPROM_ADDRESS  843 // 843..846 - IPAddress wifiManuallySetSUBNET
+#define MAX_EEPROM_ADDRESS                       900 // total amount EEPROM used
+////////////////////////////////// end of EEPROM map
+#define NTP_DEFAULT_TIME_ZONE                      2
+#define FIRST_RUN_SIGNATURE                      139 // signature to detect first run on the device and prepare EEPROM (max 255)
+#define ACCESS_POINT_SIGNATURE                   138 // signature to set AccessPointMode after start
 #define GPIO_MAX_NUMBER                           16
 #define CHANNELLIST_MIN_NUMBER                     1
-#define CHANNELLIST_MAX_NUMBER                    15
+#define CHANNELLIST_MAX_NUMBER                    12
 #define CHANNEL_NUM_ELEMENTS                       4
 #define CHANNEL_GPIO                               0
 #define CHANNEL_INVERTED                           1
@@ -77,9 +90,6 @@
 #define EVENT_START                                0
 #define EVENT_MANUAL_SWITCHING                     1
 #define EVENT_TASK_SWITCHING                       2
-#define DAYSTOKEEP_DEF                             7
-#define DAYSTOKEEP_MIN                             1
-#define DAYSTOKEEP_MAX                            60
 #define LOG_DIR                                   "/log"
 #define LOG_VIEWSTEP_DEF                          20
 #define LOG_VIEWSTEP_MIN                           5
@@ -88,31 +98,45 @@
 #define SECS_PER_HOUR                         3600UL
 #define SECS_PER_DAY                         86400UL
 #define LEAP_YEAR(Y)                         (((1970+(Y))>0) && !((1970+(Y))%4) && (((1970+(Y))%100) || !((1970+(Y))%400)))
+#define RSSI_THERESHOLD                          -80 // (dB)
+#define ACCESS_POINT_MODE_TIMER_INTERVAL    600000UL // (msec)
 //                    GPIO      0     1    2    3    4    5     6     7     8     9    10    11   12   13   14   15   16
 const String NodeMCUpins[] = {"D3","D10","D4","D9","D2","D1","N/A","N/A","N/A","D11","D12","N/A","D6","D7","D5","D8","D0"};
-const String namesOfDaysE[] = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Workdays","Weekends","Every day"};
-const String namesOfDaysR[] = {"Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Рабочие дни","Выходные дни","Каждый день"};
-const String namesOfEventsE[] = {"Start","Manual switching&nbsp;","Switching by task"};
-const String namesOfEventsR[] = {"Начало работы","Переключение вручную&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;","Переключение по заданию"};
+const String namesOfDays[] = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Workdays","Weekends","Every day",
+                              "Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Рабочие дни","Выходные дни","Каждый день"};
+const String namesOfEvents[] = {"Start","Manual switching&nbsp;","Switching by task",
+                                "Начало работы","Переключение вручную&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;","Переключение по заданию"};
 const uint8_t monthDays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
 //
 ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, POOL_SERVER_NAME, 0, 60000UL);
+NTPClient timeClient(ntpUDP); // By default 'pool.ntp.org' is used with 60 seconds update interval and no offset
 //
 struct Log_Data
  {
  time_t   utc; 
- uint8_t  event;  // Event number (EVENT_START, EVENT_MANUAL_SWITCHING, EVENT_TASK_SWITCHING), see namesOfEventsE/namesOfEventsR
+ uint8_t  event;  // Event number (EVENT_START, EVENT_MANUAL_SWITCHING, EVENT_TASK_SWITCHING), see namesOfEvents
  uint8_t  ch;     // Channel number (CHANNELLIST_MIN_NUMBER...CHANNELLIST_MAX_NUMBER), 0 if none
  uint8_t  task;   // Task number (TASKLIST_MIN_NUMBER...TASKLIST_MAX_NUMBER), 0 if none
  uint8_t  act;    // Action (0 / 1)
  };
+boolean wifiManuallySetAddresses = false;
+IPAddress wifiManuallySetIP;
+IPAddress wifiManuallySetDNS;
+IPAddress wifiManuallySetGW;
+IPAddress wifiManuallySetSUBNET;
+String AP_name; // default AP_SSID
+String AP_pass; // default AP_PASS
+boolean AccessPointMode = false;
+unsigned long AccessPointModeTimer = 0;
+size_t littleFStotalBytes = 0;
+size_t littleFSblockSize = 0;
 boolean littleFS_OK = false;
+int numCFGfiles = 0;
+int numLOGfiles = 0;
 byte log_DaysToKeep;
 byte log_ViewStep;
-size_t log_FileSize = 0;
 int log_NumRecords = 0;
 time_t log_ViewDate;
 String log_MinDate;
@@ -151,23 +175,181 @@ byte ActiveNowTasksList[CHANNELLIST_MAX_NUMBER];
 byte NextTasksList[CHANNELLIST_MAX_NUMBER];
 byte NumEnabledTasks[CHANNELLIST_MAX_NUMBER];                         
 int counterOfReboots = 0; 
+String ntpServerName = "";
+byte ntpDaylightSaveZone = 0; // 0 - EU, 1 - USA
+boolean ntpDaylightSave = true;
+boolean previousIsDaylightSave = false;
 int ntpTimeZone = NTP_DEFAULT_TIME_ZONE;  // -11...12
 boolean Language = false;       // false - English, true - Russian
+boolean TaskListCollapsed = false;
+boolean ChannelListCollapsed = false;
 #define NTPUPDATEINTERVAL 1800000UL
 bool timeSyncOK = false;
 bool timeSyncInitially = false;
 #define EPOCHTIMEMAXDIFF 600UL  // seconds
-unsigned long curEpochTime = 0; // time in seconds since Jan. 1, 1970
-int curTimeHour = 0;
-int curTimeMin = 0;
-int curTimeSec = 0;
-int curDayOfWeek = 0;           // 0 - Sunday, 1...5 - Monday...Friday, 6 - Saturday
+time_t curEpochTime;
 bool statusWiFi = false;
 unsigned long everySecondTimer = 0;
+unsigned long everyMinuteTimer = 0;
 unsigned long CheckTaskListTimer = 0;
 unsigned long setClockcurrentMillis, setClockpreviousMillis, setClockelapsedMillis; 
                                
 /////////////////////////////////////////////////////////
+
+boolean ipEmpty(IPAddress ip)
+{
+uint8_t cnt0 = 0;
+uint8_t cnt255 = 0;
+for ( int i = 0; i < 4; i++ ) 
+ { 
+ if ( ip[i] != 0 && ip[i] != 255 ) { return false; }
+ if ( ip[i] == 0 ) { cnt0++; }
+ if ( ip[i] == 255 ) { cnt255++; }
+ }
+if ( cnt0 != 4 && cnt255 != 4 ) { return false; } // e.g. subnet mask 255.255.0.0
+return true;
+}
+
+void read_manually_set_addresses()
+{
+for ( int cnt = 0; cnt < 4; cnt++ )
+ { 
+ wifiManuallySetIP[cnt]     = EEPROM.read(cnt + WIFI_MANUALLY_SET_IP_EEPROM_ADDRESS);
+ wifiManuallySetDNS[cnt]    = EEPROM.read(cnt + WIFI_MANUALLY_SET_DNS_EEPROM_ADDRESS);
+ wifiManuallySetGW[cnt]     = EEPROM.read(cnt + WIFI_MANUALLY_SET_GW_EEPROM_ADDRESS);
+ wifiManuallySetSUBNET[cnt] = EEPROM.read(cnt + WIFI_MANUALLY_SET_SUBNET_EEPROM_ADDRESS); 
+ }
+}
+
+void save_manually_set_addresses()
+{
+for ( int cnt = 0; cnt < 4; cnt++ )
+ { 
+ EEPROM.write(cnt + WIFI_MANUALLY_SET_IP_EEPROM_ADDRESS,     wifiManuallySetIP[cnt]);
+ EEPROM.write(cnt + WIFI_MANUALLY_SET_DNS_EEPROM_ADDRESS,    wifiManuallySetDNS[cnt]);
+ EEPROM.write(cnt + WIFI_MANUALLY_SET_GW_EEPROM_ADDRESS,     wifiManuallySetGW[cnt]);
+ EEPROM.write(cnt + WIFI_MANUALLY_SET_SUBNET_EEPROM_ADDRESS, wifiManuallySetSUBNET[cnt]); 
+ }
+EEPROM.commit();  
+}
+
+bool isSummerTimeNow()
+{
+if ( !ntpDaylightSave ) { return false; }
+struct tm *tinfo = gmtime(&curEpochTime);
+if ( ntpDaylightSaveZone == 0 ) // EU
+ {
+ if ( (tinfo->tm_mon + 1) < 3 || (tinfo->tm_mon + 1) > 10 ) return false; // Jan, Feb, Nov, Dec
+ if ( (tinfo->tm_mon + 1) > 3 && (tinfo->tm_mon + 1) < 10 ) return true;  // Apr, May, Jun, Jul, Aug, Sep
+ return ( ((tinfo->tm_mon + 1) == 3 && ((tinfo->tm_hour + 24 * tinfo->tm_mday) >= (1 + 24 * (31 - (5 * (1900 + tinfo->tm_year) / 4 + 4) % 7)))) 
+     ||  (((tinfo->tm_mon + 1) == 10 && (tinfo->tm_hour + 24 * tinfo->tm_mday) <  (1 + 24 * (31 - (5 * (1900 + tinfo->tm_year) / 4 + 1) % 7)))) );
+ }
+if ( ntpDaylightSaveZone == 1 ) // USA
+ {
+ if ( (tinfo->tm_mon + 1) < 3 || (tinfo->tm_mon + 1) > 11 ) return false;
+ if ( (tinfo->tm_mon + 1) > 3 && (tinfo->tm_mon + 1) < 11 ) return true;
+ uint8_t first_sunday = (7 + tinfo->tm_mday - tinfo->tm_wday) % 7 + 1; // first sunday of current month
+ if ( (tinfo->tm_mon + 1) == 3 ) // Starts at 2:00 am on the second sunday of Mar
+  {
+  if ( tinfo->tm_mday < 7 + first_sunday ) return false;
+  if ( tinfo->tm_mday > 7 + first_sunday ) return true;
+  return ( tinfo->tm_hour > 2 );
+  }
+ if ( tinfo->tm_mday < first_sunday ) return true; // Ends a 2:00 am on the first sunday of Nov. We are only getting here if its Nov
+ if ( tinfo->tm_mday > first_sunday ) return false;
+ return (tinfo->tm_hour < 2);
+ }
+return false;
+}
+
+void check_DaylightSave()
+{ 
+boolean curIsDaylightSave = isSummerTimeNow();
+timeClient.setTimeOffset(ntpTimeZone * 3600 + curIsDaylightSave * 3600);
+if ( (!timeSyncOK) && timeSyncInitially )
+ { curEpochTime = timeClient.getEpochTime(); }
+else
+ {
+ if ( curIsDaylightSave != previousIsDaylightSave )
+  { if ( curIsDaylightSave ) { curEpochTime += 3600; } else { curEpochTime -= 3600; } }
+ }
+previousIsDaylightSave = curIsDaylightSave; 
+} 
+
+boolean begin_WiFi_STA()
+{
+boolean ret = false;  
+WiFi.mode(WIFI_STA);
+WiFi.softAPdisconnect(true);
+if ( wifiManuallySetAddresses ) { WiFi.config(wifiManuallySetIP, wifiManuallySetGW, wifiManuallySetSUBNET, wifiManuallySetDNS); }
+WiFi.begin(AP_name, AP_pass);
+delay(500);
+int ct = 60;
+#ifdef DEBUG 
+ Serial.print(F("Connecting to "));
+ Serial.println(AP_name);
+#endif
+while ( WiFi.status() != WL_CONNECTED && (ct > 0) )
+ {
+ yield(); delay(500); ct--;
+ #ifdef DEBUG 
+  Serial.print(F("."));
+ #endif
+ }
+#ifdef DEBUG 
+ Serial.println();
+#endif
+ret = ( WiFi.status() == WL_CONNECTED );
+#ifdef DEBUG 
+ if ( ret ) 
+  {
+  Serial.print(F("Connected to    ")); Serial.println(AP_name);
+  Serial.print(F("MAC address     ")); Serial.println(WiFi.macAddress());
+  Serial.print(F("IP address      ")); Serial.println(WiFi.localIP()); 
+  Serial.print(F("Gateway address ")); Serial.println(WiFi.gatewayIP());
+  Serial.print(F("DNS address     ")); Serial.println(WiFi.dnsIP());
+  Serial.print(F("Subnet mask     ")); Serial.println(WiFi.subnetMask());
+  Serial.print(F("MDNS access     http://")); Serial.print(MDNSHOST); Serial.println(F(".local"));
+  }
+ else { Serial.println(F("Can't connect to WiFi.")); }
+#endif
+if ( !ret )
+ {
+ #ifdef DEBUG 
+  Serial.println(F("Going to access point mode after restart."));
+  Serial.print(F("Access point SSID = "));
+  Serial.print(APMODE_SSID);
+  Serial.print(F(" password = "));
+  Serial.print(APMODE_PASSWORD);
+  Serial.println(F(" URL = http://192.168.4.1"));
+ #endif
+ EEPROM.write(ACCESS_POINT_SIGNATURE_EEPROM_ADDRESS, ACCESS_POINT_SIGNATURE); 
+ EEPROM.commit();
+ ESP.restart(); 
+ }
+if ( !WiFi.getAutoConnect() )
+ {
+ WiFi.setAutoConnect(true);
+ WiFi.setAutoReconnect(true);
+ }
+WiFi.persistent(true);
+return ret;
+}
+
+boolean begin_WiFi_AP() 
+{
+WiFi.mode(WIFI_AP);
+WiFi.softAP(APMODE_SSID, APMODE_PASSWORD);
+#ifdef DEBUG 
+ Serial.println(F("Starting in access point mode."));
+ Serial.print(F("SSID = "));
+ Serial.print(APMODE_SSID);
+ Serial.print(F(" Password = "));
+ Serial.print(APMODE_PASSWORD);
+ Serial.println(F(" URL = http://192.168.4.1"));
+#endif
+return true;
+}
 
 void ServerSendMessageAndRefresh( int interval = 0, String url = "/", String mess1 = "", String mess2 = "", String mess3 = "", String mess4 = "" )
 {
@@ -178,10 +360,51 @@ server.send(200, F("text/html; charset=utf-8"), ans);
 
 void ServerSendMessageAndReboot()
 {
-ServerSendMessageAndRefresh( 10, "/", (Language ? F(" Перезагрузка...") : F(" Rebooting...")) );
+String mess = (Language ? F(" Перезагрузка...") : F(" Rebooting..."));
+ServerSendMessageAndRefresh( 10, "/", mess );
 delay(500);
 server.stop();
 ESP.restart(); 
+}
+
+int calcCFGfiles()
+{
+if ( !littleFS_OK ) { return 0; }
+Dir dir = LittleFS.openDir("/");
+int ret = 0;
+while ( dir.next() )
+ {
+ if ( dir.isFile() )
+  {
+  if ( dir.fileSize() )
+   {
+   File f = dir.openFile("r");
+   if ( f ) { ret++; f.close(); }
+   }
+  } 
+ yield();
+ }
+return ret; 
+}
+
+int calcLOGfiles()
+{
+if ( !littleFS_OK ) { return 0; }
+Dir dir = LittleFS.openDir(LOG_DIR);
+int ret = 0;
+while ( dir.next() )
+ {
+ if ( dir.isFile() )
+  {
+  if ( dir.fileSize() )
+   {
+   File f = dir.openFile("r");
+   if ( f ) { ret++; f.close(); }
+   }
+  } 
+ yield();
+ }
+return ret; 
 }
 
 void handleFileUpload()
@@ -213,7 +436,17 @@ if  ( currentMillis - log_lastProcess > 1000UL || log_processAfterStart )
   { 
   log_today = today;
   log_pathFromDate(log_curPath, log_today);
-  log_runRotation();
+  Dir dir = LittleFS.openDir(LOG_DIR);
+  while ( dir.next() )
+   {
+   time_t midnight = log_filenameToDate(dir.fileName());
+   if ( midnight <= (today - log_DaysToKeep * 86400) )
+    {
+    String rm = LOG_DIR;
+    rm += "/" + String(dir.fileName());   
+    LittleFS.remove(rm); 
+    } 
+   }
   }
  log_lastProcess = currentMillis;
  log_processAfterStart = false;
@@ -227,30 +460,14 @@ struct tm *tinfo = gmtime(&date);
 sprintf_P(output, "%s/%d%02d%02d", LOG_DIR, 1900 + tinfo->tm_year, tinfo->tm_mon + 1, tinfo->tm_mday);
 }
 
-void log_runRotation()
-{
-const uint8_t dirLen = strlen(LOG_DIR);
-Dir tempDir = LittleFS.openDir(LOG_DIR);
-while ( tempDir.next() )
- {
- const char *dateStart = tempDir.fileName().c_str() + dirLen + 1;
- const time_t midnight = log_filenameToDate(dateStart);
- if ( midnight < (log_today - log_DaysToKeep * 86400) )  { LittleFS.remove(tempDir.fileName()); }
- }
-}
-
-time_t log_filenameToDate(const char *filename)
+time_t log_filenameToDate(String filename) 
 {
 struct tm tm = {0,0,0,1,0,100,0,0,0};
-char datePart[5] = {0};
-strncpy(datePart, filename, 4);
-tm.tm_year = atoi(datePart) - 1900;
-strncpy(datePart, filename + 4, 2);
-datePart[2] = '\0';
-tm.tm_mon = atoi(datePart) - 1;
-strncpy(datePart, filename + 6, 2);
-tm.tm_mday = atoi(datePart);
 struct tm start2000 = {0,0,0,1,0,100,0,0,0};
+String ss;
+ss = filename.substring(0,4); tm.tm_year = ss.toInt() - 1900;
+ss = filename.substring(4,6); tm.tm_mon = ss.toInt() - 1;
+ss = filename.substring(6,8); tm.tm_mday = ss.toInt();
 return ( mktime(&tm) - (mktime(&start2000) - 946684800) ) / 86400 * 86400;
 }
 
@@ -279,7 +496,7 @@ File f = LittleFS.open(path, "r");
 size_t fs = f.size();
 f.close();
 return fs;
-}  
+}
 
 time_t makeTime(int Year, int Month, int Day, int Hour, int Minute, int Second)
 {   
@@ -305,13 +522,47 @@ struct tm *ptm = gmtime((time_t *)&log_ViewDate);
 log_Day = ptm->tm_mday;
 log_Month = ptm->tm_mon + 1;
 log_Year = ptm->tm_year + 1900 ;
-log_FileSize = log_FileSizeForDate(log_ViewDate);
-log_NumRecords = log_FileSize / sizeof(Log_Data); 
+log_NumRecords = log_FileSizeForDate(log_ViewDate) / sizeof(Log_Data); 
 log_StartRecord = log_NumRecords;
 }
 
-void drawHeader(boolean isMainPage)
+int drawFSinfo()
 {
+String content = "";
+FSInfo fs_info;
+LittleFS.info(fs_info);
+content += (Language ? F("<i>Всего файловых блоков: <b>") : F("<i>Total file blocks: <b>"));
+content += String(littleFStotalBytes / littleFSblockSize);
+content += (Language ? F("</b>&emsp;Занято блоков: <b>") : F("</b>&emsp;Used blocks: <b>"));
+content += String(fs_info.usedBytes / littleFSblockSize);
+content += F("</b>&emsp;");
+if ( littleFStotalBytes - fs_info.usedBytes <= littleFSblockSize ) { content += F("<font color='red'>"); }
+content += (Language ? F("Доступно блоков: <b>") : F("Free blocks: <b>"));
+content += String((littleFStotalBytes - fs_info.usedBytes) / littleFSblockSize);
+content += F("</b></font>&emsp;");
+content += (Language ? F("Файлов с настройками: <b>") : F("Files with settings: <b>"));
+content += String(numCFGfiles);
+content += F("</b>&emsp;");
+content += (Language ? F("Файлов журналов: <b>") : F("Log files: <b>"));
+content += String(numLOGfiles);
+content += F("</b></i>");
+if ( log_DaysToKeep - numLOGfiles > int((littleFStotalBytes - fs_info.usedBytes) / littleFSblockSize) )
+ {
+ content += F("<br><br><font color='red'><b>");
+ content += (Language ? F("! НЕДОСТАТОЧНО МЕСТА ДЛЯ ФАЙЛОВ ЖУРНАЛОВ ЗА ") : F("! NOT ENOUGH SPACE FOR JOURNAL FILES IN "));
+ content += String(log_DaysToKeep);
+ content += (Language ? F(" ДН. !") : F(" DAYS !"));
+ content += F("</b></font>");
+ }
+server.sendContent(content); content = "";
+yield();
+return fs_info.usedBytes;
+}
+
+void drawHeader(byte index) // 0 - homepage, 1 - logview page, 2 - access point page
+{
+numLOGfiles = calcLOGfiles();
+numCFGfiles = calcCFGfiles();
 String content = F("<link rel='shortcut icon' href='data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAQAQAAAAAAAAAAAAAAAAAAAAAAADCt6pgwrep/cK4qv/CuKr/wriq/8K4qv/CuKr/wriq/8K4qv/CuKr/wriq/8K4qv/CuKr/wriq/8K3qf3DuaxiwrmqisK4qv/CuKr/wriq/8K4qv/CuKr/vrSm/7WrnP+1q5z/vrSm/8K4qv/CuKr/wriq/8K4qv/CuKr/w7ipjMK5qorCuKr/wriq/8K4qv+zqZr/kYd4/5CHev+ln5T/pZ+U/5CHev+Rh3j/s6ma/8K4qv/CuKr/wriq/8O4qYzCuaqKwriq/8K4qv+jmYv/lo6C/9/d2f//////t7Wz/7e1s///////393Z/5aOgv+jmYv/wriq/8K4qv/DuKmMwrmqisK4qv+qoJH/npaL/6Cem//8/Pv//////9/f3v/f397///////z8+/+gnpv/npaL/6qgkf/CuKr/w7ipjMK5qoq/tab/i4Jz//Py8P+fnZr/7ezs///////////////////////t7Ov/n52a//Py8P+LgnP/v7Wm/8O4qYzCuaqKqZ+R/7awqP//////////////////////////////////////////////////////trCo/6mfkf/DuKmMwrmqipqQgv/X1M///////////////////////////////////////////////////////9fUz/+akIL/w7ipjMK5qoqWjH3/tbKu/1tYU///////+fj+/7ev8v9oVuP/xb70/////////////////1tYU/+1sq7/lox9/8K5q4vCt6t5m5GD/9XSzf/9/f7/npPt/1xI4f+RhOv/4d75////////////////////////////1dLN/5uRg//Ct6t5wrqrQ6uhk/+xq6H//fz+/7mx8v/z8v3//////////////////////////////////////7Grof+roZP/wrqrQ7+/vwS/tqfiioFy/+3s6f+IhoL/6urp///////////////////////q6un/iIaC/+3s6f+KgXL/v7an4r+/vwQAAAAAw7iqXa+llv+WjoL/sa+s//7+/v//////1dTT/9XU0////////v7+/7GvrP+WjoL/r6WW/8O4ql0AAAAAAAAAAAAAAADDuauYqqCS/4+Gef/Rzsn/+/v7/8HAvv/BwL7/+/v7/9HOyf+Phnn/qqCS/8O5q5gAAAAAAAAAAAAAAAAAAAAAgICAAsG3qYC5rqD6mY+A/4l/cf+Xj4P/l4+D/4l/cf+Zj4D/ua6g+sG3qYCAgIACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw7WoJsO5q5HBuKrXvLKk+byypPnBuKrXw7mrkcO1qCYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==' />");
 content += F("<head><title>");
 content += (Language ? F("Универсальный таймер") : F("Versatile timer"));
@@ -327,11 +578,27 @@ content += F("<script>function warn(){if (confirm('");
 content += (Language ? F("Вы уверены ?") : F("Are you sure ?"));
 content += F("'))f.submit();}</script>");
 content += F("<body style='background: #87CEFA'><div class='maindiv'><div class='dac'><span style='font-size:22pt'>");
-if ( isMainPage )
+server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+server.sendHeader("Pragma", "no-cache");
+server.sendHeader("Expires", "-1");
+server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+server.send(200, F("text/html; charset=utf-8"), "");
+server.sendContent(content);
+yield();
+content = "";
+if ( index == 0 )
  {
+ struct tm *tinfo = gmtime(&curEpochTime);
  content += (Language ? F("Универсальный программируемый таймер</span><p>Время: <b>") : F("Versatile timer</span><p>Time: <b>"));
- content += String(curTimeHour) + F(":")  + ( curTimeMin < 10 ? "0" : "" ) + String(curTimeMin) + F(":") + ( curTimeSec < 10 ? "0" : "" ) + String(curTimeSec) + F("</b>,&nbsp;<b>");
- content += (Language ? namesOfDaysR[curDayOfWeek] : namesOfDaysE[curDayOfWeek]);
+ content += String(tinfo->tm_hour) + F(":")  + ( tinfo->tm_min < 10 ? "0" : "" ) + String(tinfo->tm_min) + F(":") 
+         + ( tinfo->tm_sec < 10 ? "0" : "" ) + String(tinfo->tm_sec) + F("</b>,&nbsp;<b>");
+ content += namesOfDays[tinfo->tm_wday + (Language ? 10 : 0)]; // Day of week (0-6; Sunday = 0)
+ if ( !timeSyncOK )
+  {
+  content += F("&emsp;<font color='red'>"); 
+  content += (Language ? F("Ошибка синхронизации времени") : F("Time sync error"));
+  content += F("</font>"); 
+  }
  long secs = millis()/1000;
  long mins = secs / 60;
  long hours = mins / 60;
@@ -350,24 +617,13 @@ if ( isMainPage )
  content += String(counterOfReboots);
  content += F("</p><hr>");
  }
-else
+else if ( index == 1 )
  {
- Dir dir = LittleFS.openDir("/");
+ Dir dir = LittleFS.openDir(LOG_DIR);
  File f;
- size_t usedBytes = 0;
  String log_CurDate;
- while ( dir.next() )
-  {
-  if ( dir.fileSize() )
-   {
-   f = dir.openFile("r");
-   if ( f ) { usedBytes += f.size(); f.close(); }
-   yield();
-   }
-  } 
  log_MinDate = F("99999999");
  log_MaxDate = F("00000000");
- dir = LittleFS.openDir(LOG_DIR);
  while ( dir.next() )
   {
   if ( dir.fileSize() )
@@ -375,7 +631,6 @@ else
    f = dir.openFile("r");
    if ( f ) 
     {
-    usedBytes += f.size();
     log_CurDate = dir.fileName();
     if ( log_CurDate.compareTo(log_MaxDate) > 0 ) { log_MaxDate = log_CurDate; }
     if ( log_CurDate.compareTo(log_MinDate) < 0 ) { log_MinDate = log_CurDate; }
@@ -389,21 +644,10 @@ else
  if ( log_Month < 10 ) { content += F("0"); }
  content += String(log_Month) + F(".");
  content += String(log_Year) + F("</span><p>");
- content += (Language ? F("Файл журнала: <b>") : F("Log file: <b>"));
- content += String(log_FileSize);
- FSInfo fs_info;
- LittleFS.info(fs_info);
- content += (Language ? F("</b> Б&emsp;Всего: <b>") : F("</b> B&emsp;Total: <b>"));
- content += String(fs_info.totalBytes);
- content += (Language ? F("</b> Б&emsp;Занято: <b>") : F("</b> B&emsp;Used: <b>"));
- content += String(usedBytes);
- content += (Language ? F("</b> Б&emsp;") : F("</b> B&emsp;"));
- if ( fs_info.totalBytes - usedBytes <= 1024 ) { content += F("<font color='red'>"); }
- content += (Language ? F("Свободно: <b>") : F("Free: <b>"));
- content += String(fs_info.totalBytes - usedBytes);
- content += (Language ? F("</b> Б") : F("</b> B"));
- if ( fs_info.totalBytes - usedBytes <= 1024 ) { content += F("</font>"); }
- content += F("</b></p><p>");
+ server.sendContent(content); content = "";
+ yield();
+ drawFSinfo();
+ content += F("</p><p>");
  content += (Language ? F("Найдены журналы на даты: <b>") : F("Found logs for dates: <b>"));
  content += log_MinDate.substring(6,8) + F(".");
  content += log_MinDate.substring(4,6) + F(".");
@@ -412,20 +656,22 @@ else
  content += log_MaxDate.substring(4,6) + F(".");
  content += log_MaxDate.substring(0,4);
  }
+else if ( index == 2 )
+ {
+ content += (Language ? F("Универсальный программируемый таймер</span><p>") : F("Versatile timer</span><p>"));
+ content += (Language ? F("Версия: <b>") : F("Version: <b>"));
+ content += String(__DATE__);
+ content += (Language ? F("</b>&emsp;Перезагрузок: <b>") : F("</b>&emsp;Reboots: <b>"));
+ content += String(counterOfReboots);
+ content += F("</p><hr>");
+ }
 content += F("</b></p></div>");
-server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-server.sendHeader("Pragma", "no-cache");
-server.sendHeader("Expires", "-1");
-server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-server.send(200, F("text/html; charset=utf-8"), "");
 server.sendContent(content);
 yield();
 }
 
 void drawLOG()
 {
-if ( !littleFS_OK ) { return; }   
-drawHeader(false);
 String content = F("<hr><table><tr>");
 content += (Language ? F("<th>Дата и время</th>") : F("<th>Date&time</th>"));
 content += (Language ? F("<th>Событие</th>") : F("<th>Event</th>"));
@@ -454,13 +700,12 @@ if ( LittleFS.exists(path) )
             + (ptm->tm_hour < 10 ? F("0") : F("")) + String(ptm->tm_hour) + F(":") 
             + (ptm->tm_min  < 10 ? F("0") : F("")) + String(ptm->tm_min) + F(":") 
             + (ptm->tm_sec  < 10 ? F("0") : F("")) + String(ptm->tm_sec) + F("</td><td>&emsp;");
-   content += (Language ? namesOfEventsR[rl.event] : namesOfEventsE[rl.event]);
+   content += namesOfEvents[rl.event + (Language ? 3 : 0)];
    content += F("</td><td align='right'>");
    if ( rl.event > 0 )
     {
     content += (rl.event == 2 ? String(rl.task + 1) : F("&nbsp;"));
     content += F("</td><td align='right'>");
-    //content += ((rl.ch + 1) < 10 ? F("&nbsp;&nbsp;") : F(""));
     content += String(rl.ch + 1);
     content += F("</td><td align='left'>&emsp;");
     if ( rl.act ) { content += (Language ? F("ВКЛ")  : F("ON")); } 
@@ -486,10 +731,7 @@ if ( log_NumRecords > 0 )
  content += (Language ? F("</b> из <b>") : F("</b> of <b>"));
  content += String(log_NumRecords);
  }
-else
- {
- content += (Language ? F("</b><i>Записи на указанную дату не найдены</i>") : F("</b><i>No records found for the specified date</i>"));
- }
+else { content += (Language ? F("</b><i>Записи на указанную дату не найдены</i>") : F("</b><i>No records found for the specified date</i>")); }
 content += F("</b></p><hr><form>");
 content += F("<input formaction='/log_first' formmethod='get' type='submit' value='   |<   '");
 if ( log_NumRecords <= log_ViewStep || log_StartRecord == log_NumRecords ) 
@@ -548,10 +790,8 @@ content += (Language ? F("Сохранить") : F("Save"));
 content += F("' /></p></form>");
 content += F("<form method='get' form action='/setlog_DaysToKeep'><p>");
 content += (Language ? F("Дней хранения") : F("Days to keep"));
-content += F(":&emsp;<input name='dk' type='number' min='");
-content += String(DAYSTOKEEP_MIN);
-content += F("' max='");
-content += String(DAYSTOKEEP_MAX);
+content += F(":&emsp;<input name='dk' type='number' min='1' max='");
+content += String((littleFStotalBytes / littleFSblockSize) - 4);
 content += F("' value='");
 content += String(log_DaysToKeep) + F("' />&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить и перезагрузить") : F("Save and reboot"));
@@ -562,139 +802,60 @@ server.sendContent(F("")); // transfer is done
 server.client().stop();
 }
 
-void drawHomePage()
+void drawChannelList()
 {
-byte curChNum;
-bool curTaskEnabled;
-drawHeader(true);
-String content = "";
-boolean isEnabledChannels = false;
-for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
- { if ( ChannelList[chNum][CHANNEL_ENABLED] ) { isEnabledChannels = true; break; } }
-if ( isEnabledChannels )
- {
- content += F("<table><tr>");
- }
-else
- {
- content += F("<br><font color='red'><b>");
- content += (Language ? F("Нет доступных каналов") : F("No channels available"));
- content += F("</b></font><br><br>");
- }
+String content = "";  
 for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
  {
  yield(); 
- if ( !ChannelList[chNum][CHANNEL_ENABLED] ) { continue; }
- content += F("<tr><td>");
- content += (Language ? F("Канал <b>") : F("Channel <b>"));
+ content += ( ChannelList[chNum][CHANNEL_ENABLED] ? F("<font color='black'>") : F("<font color='dimgrey'>") );
+ content += F("<form method='get' form action='/setchannelparams'><p>");
  if ( numberOfChannels > 9 && (chNum + 1) <  10 ) { content += F("&nbsp;&nbsp;"); }
- content += String(chNum + 1);
- content += (Language ? F(":</b>&nbsp;<font color='") : F(":</b>&nbsp;<font color='"));
- String onoff;
- if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK )
-  {
-  onoff = "on";  
-  if ( NumEnabledTasks[chNum] > 0 )
-   { content += ( Language ? F("red'><b>ВЫКЛЮЧЕН </font></b></td><td>(заданием)") : F("red'><b>OFF </font></b></td><td>(by task)") ); }
-  else 
-   { content += ( Language ? F("red'><b>ВЫКЛЮЧЕН </font></b></td><td>(вручную)") : F("red'><b>OFF </font></b></td><td>(manually)") ); }
-  }
- else if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK )
-  {
-  onoff = "off";  
-  if ( NumEnabledTasks[chNum] > 0 )
-   { content += ( Language ? F("green'><b>ВКЛЮЧЕН </font></b></td><td>(заданием)") : F("green'><b>ON </font></b></td><td>(by task)") ); }
-  else 
-   { content += ( Language ? F("green'><b>ВКЛЮЧЕН </font></b></td><td>(вручную)") : F("green><b>ON </font></b></td><td>(manually)") ); }
-  }
- else if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY )
-  { onoff = "on"; content += ( Language ? F("red'><b>ВЫКЛЮЧЕН </font></b></td><td>(вручную)") : F("red'><b>OFF </font></b></td><td>(manually)") ); }
- else if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY )
-  { onoff = "off"; content += ( Language ? F("green'><b>ВКЛЮЧЕН </font></b></td><td>(вручную)") : F("green'><b>ON </font></b></td><td>(manually)") ); }
- else if ( ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150 )
-  { onoff = "onuntil"; content += ( Language ? F("red'><b>ВЫКЛЮЧЕН </font></b></td><td>(до след. задания)") : F("red'><b>OFF </font></b></td><td>(until next task)") ); }
- else if ( ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250 )
-  { onoff = "offuntil"; content += ( Language ? F("green'><b>ВКЛЮЧЕН </font></b></td><td>(до след. задания)") : F("green'><b>ON </font></b></td><td>(until next task)") ); }
- content += F("</b></font></td><td>&emsp;<a href='/setchannelstate");   
- content += onoff + F("?s");   
+ content += (Language ? F("Канал ") : F("Channel "));
+ content += ( ChannelList[chNum][CHANNEL_ENABLED] ? F("<b>") : F("") );
+ content += String(chNum + 1) + F(":</b>&nbsp;<select name='e");
  if ( chNum < 10 ) { content += F("0"); }
- content += String(chNum) + F("'><input type='button' value='");   
- if ( Language ) 
-  { 
-  content += ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK 
-            || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250)
-            || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY ? F("Выключить") : F("Включить") ); 
-  }
- else
+ content += String(chNum) + F("' size='1'><option ");
+ if ( ChannelList[chNum][CHANNEL_ENABLED] )
+      { content += (Language ? F("selected='selected' value='11'>доступен</option><option value='10'>") : F("selected='selected' value='11'>enabled</option><option value='10'>")); }
+ else { content += (Language ? F("value='11'>доступен</option><option selected='selected' value='10'>") : F("value='11'>enabled</option><option selected='selected' value='10'>")); }
+ content += (Language ? F("недоступен") : F("disabled"));
+ content += F("</option></select>");
+ content += F("&nbsp;GPIO&nbsp;<input name='r' type='number' min='0' max='");
+ content += String(GPIO_MAX_NUMBER) + F("' value='");
+ content += String(ChannelList[chNum][CHANNEL_GPIO]) + F("' /> (") + NodeMCUpins[ChannelList[chNum][CHANNEL_GPIO]] + F(")&nbsp;");
+ content += (Language ? F("Управление") : F("Controls"));
+ content += F("&nbsp;<select name='i' size='1'><option ");
+ if ( ChannelList[chNum][CHANNEL_INVERTED] ) 
+      { content += (Language ? F("selected='selected' value='11'>инвертированное</option><option value='10'>") : F("selected='selected' value='11'>inverted</option><option value='10'>")); }
+ else { content += (Language ? F("value='11'>инвертированное</option><option selected='selected' value='10'>") : F("value='11'>inverted</option><option selected='selected' value='10'>")); }
+ content += (Language ? F("прямое") : F("noninverted"));
+ content += F("</option></select>&nbsp;<input type='submit' value='");
+ content += (Language ? F("Сохранить' />") : F("Save' />"));
+ int duplicateChannelNumber = find_duplicate_or_conflicting_channel(chNum);
+ if ( duplicateChannelNumber >= 0 )
   {
-  content += ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK 
-            || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250)
-            || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY ? F("Set OFF") : F("Turn ON") ); 
+  content += F("<font color='red'>&emsp;");  
+  if ( duplicateChannelNumber >= 1000 ) { content += (Language ? F("<b>конфликт с ") : F("<b>conflicts with ")); duplicateChannelNumber -= 1000; }
+                                   else { content += (Language ? F("<b>дублирует ") : F("<b>duplicates ")); }
+  content += String(duplicateChannelNumber + 1) + F(" !</b></font>");
   }
- content += F("'></a></td><td><font color='darkblue'>&emsp;");
- if ( NumEnabledTasks[chNum] > 0 )
-  {
-  content += (Language ? F("заданий: ") : F("tasks: "));
-  content += String(NumEnabledTasks[chNum]);
-  }
- else { content += (Language ? F("нет заданий") : F("no tasks")); }
- // manually
- if ( NumEnabledTasks[chNum] > 0 
-   && ChannelList[chNum][CHANNEL_LASTSTATE] != LASTSTATE_ON_MANUALLY 
-   && ChannelList[chNum][CHANNEL_LASTSTATE] != LASTSTATE_OFF_MANUALLY
-    )
-  {
-  content += F("</td><td>&emsp;<a href='/setchannelmanually?a");   
-  content += ( chNum < 10 ? F("0"): F("") );
-  content += String(chNum) + F("'><input type='button' value='");   
-  content += ( Language ? F("Вручную") : F("Manually") ); 
-  content += F("'></a>");
-  }
- if ( NumEnabledTasks[chNum] > 0 &&
-     (ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY 
-   || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY)
-    )
-  { content += F("</td><td>&emsp;"); }
- // until next task 
- if ( NumEnabledTasks[chNum] > 0 && ChannelList[chNum][CHANNEL_LASTSTATE] < 50 )
-  {
-  content += F("</td><td>&nbsp;<a href='/setchanneluntil?a");   
-  content += ( chNum < 10 ? F("0"): F("") );
-  content += String(chNum) + F("'><input type='button' value='");   
-  content += ( Language ? F("Вручную до след. задания") : F("Manually until next task") ); 
-  content += F("'></a>");
-  }
- if ( NumEnabledTasks[chNum] > 0 && ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 )
-  {
-  content += F("</td><td>&emsp;");   
-  }
- // by tasks
- if ( NumEnabledTasks[chNum] > 0 && 
-     ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY 
-    || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY
-    || ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 )
-    )
-  {
-  content += F("</td><td>&nbsp;<a href='/setchannelbytasks?a");   
-  content += ( chNum < 10 ? F("0"): F("") );
-  content += String(chNum) + F("'><input type='button' value='");   
-  content += ( Language ? F("По заданиям") : F("By tasks") ); 
-  content += F("'></a>");
-  }
- content += F("</font></td></tr>"); 
- } // end of for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
-if ( isEnabledChannels ) { content += F("</tr></table>"); } 
-if ( littleFS_OK )
- {
- content += F("<hr><center><p><form method='get' form action='/viewlog'><input name='vwl' type='submit' value='&emsp;&emsp;&emsp;");
- content += (Language ? F("Просмотр журнала") : F("View log"));
- content += F("&emsp;&emsp;&emsp;' /></form></p></center>");
+ content += F("</p></form></font>");
  }
-content += F("<hr>");
+content += (Language ? F("&emsp;<i>GPIO может быть от 0") : F("&emsp;<i>GPIO can be from 0"));
+content += (Language ? F(" до ") : F(" to "));
+content += String(GPIO_MAX_NUMBER);
+content += (Language ? F(", исключая 6,7,8 и 11. Использование GPIO 1 нежелательно (конфликт с Serial TX).</i>") 
+                     : F(", exclude 6,7,8 and 11. Using GPIO 1 is unwanted (conflict with Serial TX).</i>"));
 server.sendContent(content); content = "";
-// list tasks
-curChNum = TaskList[0][TASK_CHANNEL];
-curTaskEnabled = ( TaskList[0][TASK_ACTION] != ACTION_NOACTION );
+yield();
+}
+
+void drawTaskList()
+{
+String content = "";  
+int curChNum = TaskList[0][TASK_CHANNEL];
+boolean curTaskEnabled = ( TaskList[0][TASK_ACTION] != ACTION_NOACTION );
 for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
  {
  yield(); 
@@ -753,7 +914,7 @@ for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
  for (int t = 0; t <= TASK_DAY_EVERYDAY; t++)
   {
   if ( TaskList[taskNum][TASK_DAY] == t ) { content += F("selected='selected' "); } 
-  content += F("value='"); content += String(t) + F("'>") + (Language ? namesOfDaysR[t] : namesOfDaysE[t]) + F("</option>");       
+  content += F("value='"); content += String(t) + F("'>") + namesOfDays[t + (Language ? 10 : 0)] + F("</option>");       
   if ( t < 9 ) { content += F("<option "); }
   }
  content += F("</select>&nbsp;<input type='submit' value='");
@@ -787,49 +948,359 @@ for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
  server.sendContent(content); content = "";
  } // end of for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
 yield(); 
-content += F("<hr>");
-// ChannelList
+}
+
+void drawWiFiSettings()
+{
+String content = F("<hr>");
+String myBSSID = WiFi.BSSIDstr();
+String lip = wifiManuallySetIP.toString();
+String dns = wifiManuallySetDNS.toString();
+String gwy = wifiManuallySetGW.toString();
+String net = wifiManuallySetSUBNET.toString();
+int APtotalnumber = WiFi.scanNetworks();
+yield();
+if ( APtotalnumber > 0 )
+ {
+ int APdb[APtotalnumber];
+ int APnum[APtotalnumber];
+ String APBSSID[APtotalnumber];
+ delay(10);
+ for ( int i = 0; i < APtotalnumber; ++i ) 
+  { 
+  APnum[i] = i; APdb[i] = WiFi.RSSI(i); APBSSID[i] = WiFi.BSSIDstr(i);
+  yield();
+  }
+ for (int i = 1; i < APtotalnumber; i++) // sorting on RSSI
+  {
+  for (int j = i; j > 0 && (APdb[j-1] < APdb[j]); j--) 
+   {
+   int tmp = APdb[j-1];
+   APdb[j-1] = APdb[j];
+   APdb[j] = tmp;
+   tmp = APnum[j-1];
+   APnum[j-1] = APnum[j];
+   APnum[j] = tmp;
+   String tmpst = APBSSID[j-1];
+   APBSSID[j-1] = APBSSID[j];
+   APBSSID[j] = tmpst;
+   }
+  }
+ content += F("<form method='get' action='/wifisetting'><table><tr><td>");
+ content += (Language ? F("Выберите точку доступа") : F("Select access point"));
+ yield();
+ String st = ":</td><td>";
+ for (int i = 0; i < APtotalnumber; i++)
+  {
+  if ( APdb[i] >= RSSI_THERESHOLD || APBSSID[i] == myBSSID )
+   { 
+   if ( i > 0 ) { st += F("</td> <td>"); }
+   st += ( APBSSID[i] == myBSSID ? F("<b>") : F("") );
+   st += F("<input name='ssid' type='radio' value='");
+   st += WiFi.SSID(APnum[i]);
+   st += F("'");
+   st += ( APBSSID[i] == myBSSID ? F(" checked") : F("") );
+   st += F("> ");
+   st += WiFi.SSID(APnum[i]);
+   st += F(" (");
+   st += String(APdb[i]);
+   st += F("db)</td></tr><tr><td>");
+   st += ( APBSSID[i] == myBSSID ? F("</b>") : F("") );
+   }
+  yield();
+  }
+ content += st;
+ content += F("</td></tr><tr><td>");
+ content += (Language ? F("Введите пароль для выбранной точки доступа") : F("Enter password for selected access point"));
+ content += F(":</td><td><input maxlength='32' name='pass' size='32' type='text'/>");
+ }
+yield();
+content += F("</td></tr><tr><td>");
+content += (Language ? F("Получение IP адресов") : F("Obtaining IP addresses"));
+content += F(":</td><td><input name='dhcp' type='radio' value='0'");
+content += ( !wifiManuallySetAddresses ? F(" checked> ") : F("> ") );
+content += (Language ? F("Автоматически по DHCP") : F("Automatically via DHCP"));
+content += F("&emsp;</td></tr><tr><td> </td><td><input name='dhcp' type='radio' value='1'");
+content += ( wifiManuallySetAddresses ? F(" checked> ") : F("> ") );
+content += (Language ? F("Использовать указанные ниже") : F("Use the following IP addresses"));
+content += F("</td></tr><tr><td>");
+content += (Language ? F("IP-адрес (") : F("IP address ("));
+content += WiFi.localIP().toString() + F("):</td><td><input name='lip' required");
+content += F(" type='ip' pattern='^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$' value='");
+content += lip + F("' /></td></tr><tr><td>");
+content += (Language ? F("Маска подсети (") : F("Subnet mask ("));
+content += WiFi.subnetMask().toString() + F("):</td><td><input name='net' required");
+content += F(" type='ip' pattern='^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$' value='");
+content += net + F("' /></td></tr><tr><td>");
+content += (Language ? F("Основной шлюз (") : F("Gateway ("));
+content += WiFi.gatewayIP().toString() + F("):</td><td><input name='gwy' required");
+content += F(" type='ip' pattern='^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$' value='");
+content += gwy + F("' /></td></tr><tr><td>");
+content += (Language ? F("DNS-сервер") : F("DNS server ("));
+content += WiFi.dnsIP().toString() + F("):</td><td><input name='dns' required");
+content += F(" type='ip' pattern='^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$' value='");
+content += dns + F("' /></td><td>");
+content += F("<input type='submit' value='");
+content += (Language ? F("Сохранить и перезагрузить") : F("Save and reboot"));
+content += F("'></form></td></tr></table>");
+server.sendContent(content); content = "";
+yield(); 
+}
+
+void drawFilesSettings()
+{
+if ( !littleFS_OK ) { return; }
+String content = F("<hr>");
+server.sendContent(content); content = "";
+yield();
+int usedBytes = drawFSinfo();
+// Save
+if ( littleFStotalBytes - usedBytes >= littleFSblockSize )
+ {
+ struct tm *tinfo = gmtime(&curEpochTime);
+ content += F("<p><form method='get' form action='/savesettings'>");
+ content += (Language ? F("Сохранить все настройки в файл") : F("Save all settings to file"));
+ content += F(":&emsp;<input maxlength='30' name='fn' size='30' type='text' pattern='[a-zA-Z0-9-_.]+' required value='");
+ content += String(1900 + tinfo->tm_year) + F("-")
+         + ( tinfo->tm_mon + 1 < 10 ? F("0") : F("") ) + String(tinfo->tm_mon + 1) + F("-")
+         + ( tinfo->tm_mday < 10 ? F("0") : F("") ) + String(tinfo->tm_mday) + F("-")
+         + ( tinfo->tm_hour < 10 ? F("0") : F("") ) + String(tinfo->tm_hour) + F("-")
+         + ( tinfo->tm_min < 10 ? F("0") : F("") ) + String(tinfo->tm_min) + F(".VTcfg");
+ content += F("' />&emsp;<input type='submit' value='");
+ content += (Language ? F("Сохранить") : F("Save"));
+ content += F("' /></form></p>");
+ }
+if ( numCFGfiles > 0 )
+ {
+ Dir dir = LittleFS.openDir("/");
+ String arrFileNames[numCFGfiles];
+ int fileNum = 0;
+ do
+  {
+  if ( dir.fileName() != "" ) { arrFileNames[fileNum] = dir.fileName(); fileNum++; }
+  if ( fileNum >= numCFGfiles ) { break; }
+  yield();
+  }
+ while ( dir.next() ); 
+ // Restore
+ content += F("<p><form method='get' form action='/restoresettings' onsubmit='warn();return false;'>");
+ content += (Language ? F("Восстановить настройки из файла") : F("Restore settings from file"));
+ content += F(":&emsp;<select name='file' size='1'>");
+ for ( int fileNum = 0; fileNum < numCFGfiles; fileNum++ )
+  {
+  content += F("<option required value='"); 
+  content += arrFileNames[fileNum] + F("'>") + arrFileNames[fileNum] + F("</option>");       
+  yield();
+  }
+ content += F("</select>&emsp;<input type='submit' value='");
+ content += (Language ? F("Восстановить (будьте осторожны!) и перезагрузить") : F("Restore (be careful!) and reboot"));
+ content += F("' /></form></p>");
+ // Rename
+ content += F("<p><form method='get' form action='/renamefile'>");
+ content += (Language ? F("Переименовать файл") : F("Rename settings file"));
+ content += F(":&emsp;<select name='file' size='1'>");
+ for ( int fileNum = 0; fileNum < numCFGfiles; fileNum++ )
+  {
+  content += F("<option required value='"); 
+  content += arrFileNames[fileNum] + F("'>") + arrFileNames[fileNum] + F("</option>");       
+  yield();
+  }
+ content += F("</select>&emsp;");
+ content += (Language ? F("Новое имя") : F("New name"));
+ content += F(":&emsp;<input maxlength='30' name='nn' size='30' type='text' pattern='[a-zA-Z0-9-_.]+' required");
+ content += F("/>&emsp;<input type='submit' value='");
+ content += (Language ? F("Переименовать") : F("Rename"));
+ content += F("' /></form></p>");
+ // Delete
+ content += F("<p><form method='get' form action='/deletefile' onsubmit='warn();return false;'>");
+ content += (Language ? F("Удалить файл с настройками") : F("Delete settings file"));
+ content += F(":&emsp;<select name='file' size='1'>");
+ for ( int fileNum = 0; fileNum < numCFGfiles; fileNum++ )
+  {
+  content += F("<option required value='"); 
+  content += arrFileNames[fileNum] + F("'>") + arrFileNames[fileNum] + F("</option>");       
+  yield();
+  }
+ content += F("</select>&emsp;<input type='submit' value='");
+ content += (Language ? F("Удалить (будьте осторожны!)") : F("Delete (be careful!)"));
+ content += F("' /></form></p>");
+ // Download
+ content += F("<p><form method='post' form action='/downloadfile'>");
+ content += (Language ? F("Выгрузить файл с настройками") : F("Download settings file"));
+ content += F(":&emsp;<select name='file' size='1'>");
+ for ( int fileNum = 0; fileNum < numCFGfiles; fileNum++ )
+  {
+  content += F("<option required value='"); 
+  content += arrFileNames[fileNum] + F("'>") + arrFileNames[fileNum] + F("</option>");       
+  yield();
+  }
+ content += F("</select>&emsp;<input type='submit' value='");
+ content += (Language ? F("Выгрузить") : F("Download"));
+ content += F("' /></form></p>");
+ } // end of if ( numCFGfiles > 0 )
+// Upload
+if ( littleFStotalBytes - usedBytes >= littleFSblockSize )
+ {
+ content += F("<p><form method='post' form action='/uploadfile' enctype='multipart/form-data'>");
+ content += (Language ? F("Загрузить файл с настройками") : F("Upload settings file"));
+ content += F(":&emsp;<input type='file' name='upload'><input type='submit' value='");
+ content += (Language ? F("Загрузить") : F("Upload"));
+ content += F("' /></form></p>");
+ }
+server.sendContent(content); content = "";
+yield(); 
+}
+
+void drawHomePage()
+{
+String content = "";
+boolean isEnabledChannels = false;
+for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
+ { if ( ChannelList[chNum][CHANNEL_ENABLED] ) { isEnabledChannels = true; break; } }
+if ( isEnabledChannels )
+ {
+ content += F("<table><tr>");
+ }
+else
+ {
+ content += F("<br><font color='red'><b>");
+ content += (Language ? F("Нет доступных каналов") : F("No channels available"));
+ content += F("</b></font><br><br>");
+ }
 for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
  {
  yield(); 
- content += ( ChannelList[chNum][CHANNEL_ENABLED] ? F("<font color='black'>") : F("<font color='dimgrey'>") );
- content += F("<form method='get' form action='/setchannelparams'><p>");
+ if ( !ChannelList[chNum][CHANNEL_ENABLED] ) { continue; }
+ content += F("<tr><td>");
+ content += (Language ? F("Канал <b>") : F("Channel <b>"));
  if ( numberOfChannels > 9 && (chNum + 1) <  10 ) { content += F("&nbsp;&nbsp;"); }
- content += (Language ? F("Канал ") : F("Channel "));
- content += ( ChannelList[chNum][CHANNEL_ENABLED] ? F("<b>") : F("") );
- content += String(chNum + 1) + F(":</b>&nbsp;<select name='e");
- if ( chNum < 10 ) { content += F("0"); }
- content += String(chNum) + F("' size='1'><option ");
- if ( ChannelList[chNum][CHANNEL_ENABLED] )
-      { content += (Language ? F("selected='selected' value='11'>доступен</option><option value='10'>") : F("selected='selected' value='11'>enabled</option><option value='10'>")); }
- else { content += (Language ? F("value='11'>доступен</option><option selected='selected' value='10'>") : F("value='11'>enabled</option><option selected='selected' value='10'>")); }
- content += (Language ? F("недоступен") : F("disabled"));
- content += F("</option></select>");
- content += F("&nbsp;GPIO&nbsp;<input name='r' type='number' min='0' max='");
- content += String(GPIO_MAX_NUMBER) + F("' value='");
- content += String(ChannelList[chNum][CHANNEL_GPIO]) + F("' /> (") + NodeMCUpins[ChannelList[chNum][CHANNEL_GPIO]] + F(")&nbsp;");
- content += (Language ? F("Управление") : F("Controls"));
- content += F("&nbsp;<select name='i' size='1'><option ");
- if ( ChannelList[chNum][CHANNEL_INVERTED] ) 
-      { content += (Language ? F("selected='selected' value='11'>инвертированное</option><option value='10'>") : F("selected='selected' value='11'>inverted</option><option value='10'>")); }
- else { content += (Language ? F("value='11'>инвертированное</option><option selected='selected' value='10'>") : F("value='11'>inverted</option><option selected='selected' value='10'>")); }
- content += (Language ? F("прямое") : F("noninverted"));
- content += F("</option></select>&nbsp;<input type='submit' value='");
- content += (Language ? F("Сохранить' />") : F("Save' />"));
- int duplicateChannelNumber = find_duplicate_or_conflicting_channel(chNum);
- if ( duplicateChannelNumber >= 0 )
+ content += String(chNum + 1);
+ content += (Language ? F(":</b>&nbsp;<font color='") : F(":</b>&nbsp;<font color='"));
+ String onoff;
+ if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK )
   {
-  content += F("<font color='red'>&emsp;");  
-  if ( duplicateChannelNumber >= 1000 ) { content += (Language ? F("<b>конфликт с ") : F("<b>conflicts with ")); duplicateChannelNumber -= 1000; }
-                                   else { content += (Language ? F("<b>дублирует ") : F("<b>duplicates ")); }
-  content += String(duplicateChannelNumber + 1) + F(" !</b></font>");
+  onoff = "on";  
+  if ( NumEnabledTasks[chNum] > 0 )
+   { content += ( Language ? F("red'><b>ВЫКЛЮЧЕН </font></b></td><td>(заданием)") : F("red'><b>OFF </font></b></td><td>(by task)") ); }
+  else 
+   { content += ( Language ? F("red'><b>ВЫКЛЮЧЕН </font></b></td><td>(вручную)") : F("red'><b>OFF </font></b></td><td>(manually)") ); }
   }
- content += F("</p></form></font>");
+ else if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK )
+  {
+  onoff = "off";  
+  if ( NumEnabledTasks[chNum] > 0 )
+   { content += ( Language ? F("green'><b>ВКЛЮЧЕН </font></b></td><td>(заданием)") : F("green'><b>ON </font></b></td><td>(by task)") ); }
+  else 
+   { content += ( Language ? F("green'><b>ВКЛЮЧЕН </font></b></td><td>(вручную)") : F("green><b>ON </font></b></td><td>(manually)") ); }
+  }
+ else if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY )
+  { onoff = "on"; content += ( Language ? F("red'><b>ВЫКЛЮЧЕН </font></b></td><td>(вручную)") : F("red'><b>OFF </font></b></td><td>(manually)") ); }
+ else if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY )
+  { onoff = "off"; content += ( Language ? F("green'><b>ВКЛЮЧЕН </font></b></td><td>(вручную)") : F("green'><b>ON </font></b></td><td>(manually)") ); }
+ else if ( ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150 )
+  { onoff = "onuntil"; content += ( Language ? F("red'><b>ВЫКЛЮЧЕН </font></b></td><td>(до след. задания)") : F("red'><b>OFF </font></b></td><td>(until next task)") ); }
+ else if ( ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250 )
+  { onoff = "offuntil"; content += ( Language ? F("green'><b>ВКЛЮЧЕН </font></b></td><td>(до след. задания)") : F("green'><b>ON </font></b></td><td>(until next task)") ); }
+ content += F("</b></font></td><td>&emsp;<a href='/setchannelstate");   
+ content += onoff + F("?s");   
+ if ( chNum < 10 ) { content += F("0"); }
+ content += String(chNum) + F("'><input type='button' value='");   
+ if ( Language ) 
+  { 
+  content += ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK 
+            || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250)
+            ||  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY ? F("Выключить") : F("Включить") ); 
+  }
+ else
+  {
+  content += ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK 
+            || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250)
+            ||  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY ? F("Set OFF") : F("Turn ON") ); 
+  }
+ content += F("'></a></td><td><font color='darkblue'>&emsp;");
+ if ( NumEnabledTasks[chNum] > 0 )
+  {
+  content += (Language ? F("заданий: ") : F("tasks: "));
+  content += String(NumEnabledTasks[chNum]);
+  }
+ else { content += (Language ? F("нет заданий") : F("no tasks")); }
+ // manually
+ if ( NumEnabledTasks[chNum] > 0 
+   && ChannelList[chNum][CHANNEL_LASTSTATE] != LASTSTATE_ON_MANUALLY 
+   && ChannelList[chNum][CHANNEL_LASTSTATE] != LASTSTATE_OFF_MANUALLY
+    )
+  {
+  content += F("</td><td>&emsp;<a href='/setchannelmanually?a");   
+  content += ( chNum < 10 ? F("0"): F("") );
+  content += String(chNum) + F("'><input type='button' value='");   
+  content += ( Language ? F("Вручную") : F("Manually") ); 
+  content += F("'></a>");
+  }
+ if ( NumEnabledTasks[chNum] > 0 &&
+     (ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY 
+   || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY)
+    )
+  { content += F("</td><td>&emsp;"); }
+ // until next task 
+ if ( NumEnabledTasks[chNum] > 0 && ChannelList[chNum][CHANNEL_LASTSTATE] < 50 )
+  {
+  content += F("</td><td>&nbsp;<a href='/setchanneluntil?a");   
+  content += ( chNum < 10 ? F("0"): F("") );
+  content += String(chNum) + F("'><input type='button' value='");   
+  content += ( Language ? F("Вручную до след. задания") : F("Manually until next task") ); 
+  content += F("'></a>");
+  }
+ if ( NumEnabledTasks[chNum] > 0 && ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 )
+  {
+  content += F("</td><td>&emsp;");   
+  }
+ // by tasks
+ if ( NumEnabledTasks[chNum] > 0 && 
+     ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY 
+    || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY
+    || ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 )
+    )
+  {
+  content += F("</td><td>&nbsp;<a href='/setchannelbytasks?a");   
+  content += ( chNum < 10 ? F("0"): F("") );
+  content += String(chNum) + F("'><input type='button' value='");   
+  content += ( Language ? F("По заданиям") : F("By tasks") ); 
+  content += F("'></a>");
+  }
+ content += F("</font></td></tr>"); 
+ } // end of for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
+if ( isEnabledChannels ) { content += F("</tr></table>"); } 
+if ( littleFS_OK )
+ {
+ content += F("<hr>");
+ content += F("<center><p><form method='get' form action='/viewlog'><input name='vwl' type='submit' value='&emsp;&emsp;&emsp;");
+ content += (Language ? F("Просмотр журнала") : F("View log"));
+ content += F("&emsp;&emsp;&emsp;' /></form></p></center>");
  }
-content += (Language ? F("<i>&emsp;(для NodeMCU GPIO может быть от ") : F("<i>&emsp;(for NodeMCU GPIO can be from 0"));
-content += (Language ? F(" до ") : F(" to "));
-content += String(GPIO_MAX_NUMBER);
-content += (Language ? F(", исключая 6,7,8 и 11)</i>") : F(", exclude 6,7,8 and 11)</i>"));
+content += F("<hr>");
+// list tasks
+if ( numberOfTasks <= 5 ) { TaskListCollapsed = false; }
+else
+ {
+ content += F("<form method='get' form action='/settasklistcollapsed'><input name='stlc' type='submit' value='");
+ if ( !TaskListCollapsed ) { content += (Language ? F("Свернуть список заданий") : F("Collapse task list")); }
+                      else { content += (Language ? F("Развернуть список заданий") : F("Expand task list")); }
+ content += F("' /></form>");
+ }
+server.sendContent(content); content = "";
+if ( !TaskListCollapsed ) { drawTaskList(); }
+content += F("<hr>");
+// list channels
+if ( numberOfChannels <= 5 ) { ChannelListCollapsed = false; }
+else
+ {
+ content += F("<form method='get' form action='/setchannellistcollapsed'><input name='stlc' type='submit' value='");
+ if ( !ChannelListCollapsed ) { content += (Language ? F("Свернуть список каналов") : F("Collapse channel list")); }
+                         else { content += (Language ? F("Развернуть список каналов") : F("Expand channel list")); }
+ content += F("' /></form>");
+ }
+server.sendContent(content); content = "";
+if ( !ChannelListCollapsed ) { drawChannelList(); }
 content += F("<hr>");
 // Settings
 content += F("<form method='get' form action='/setnumberOfTasks'><p>");
@@ -854,133 +1325,67 @@ content += F("&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить") : F("Save"));
 content += F("' /></p></form><form method='get' form action='/setntpTimeZone'><p>");
 content += (Language ? F("Часовой пояс") : F("Time Zone"));
-content += F("(-12...12):&emsp;<input name='tz' type='number' min='-11' max='12' value='");
+content += F(" (-12...12):&emsp;<input name='tz' type='number' min='-11' max='12' value='");
 content += String(ntpTimeZone) + F("' />&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить и перезагрузить") : F("Save and reboot"));
-content += F("' /></p></form><form method='get' form action='/setlogin'><p>");
+content += F("' /></p></form>");
+content += F("<form method='get' form action='/setntpdaylightsave'><p>");
+content += (Language ? F("Автопереход на летнее-зимнее время") : F("Auto daylight saving time"));
+content += F(":&emsp;<select name='dls' size='1'><option ");
+if ( ntpDaylightSave ) { content += (Language ? F("selected='selected' value='11'>включен</option><option value='10'>") 
+                                              : F("selected='selected' value='11'>enabled</option><option value='10'>")); }
+                  else { content += (Language ? F("value='11'>включен</option><option selected='selected' value='10'>") 
+                                              : F("value='11'>enabled</option><option selected='selected' value='10'>")); }
+content += (Language ? F("отключен") : F("disabled"));
+content += F("</option></select>&emsp;<input type='submit' value='");
+content += (Language ? F("Сохранить") : F("Save"));
+content += F("' />&emsp;<font color='darkblue'>");
+if ( ntpDaylightSave )
+ { if ( isSummerTimeNow() ) { content += (Language ? F("Сейчас активно летнее время") : F("Daylight saving active now")); }
+                       else { content += (Language ? F("Сейчас активно зимнее время") : F("Daylight saving inactive now")); } }
+content += F("</font></p></form><form method='get' form action='/setntpdaylightsavezone'><p>");
+content += (Language ? F("Зона перехода на летнее-зимнее время") : F("Daylight saving time zone"));
+content += F(":&emsp;<select name='dlsz' size='1'><option ");
+if ( ntpDaylightSaveZone ) { content += (Language ? F("selected='selected' value='11'>США</option><option value='10'>") 
+                                                  : F("selected='selected' value='11'>USA</option><option value='10'>")); }
+                      else { content += (Language ? F("value='11'>США</option><option selected='selected' value='10'>") 
+                                                  : F("value='11'>USA</option><option selected='selected' value='10'>")); }
+content += (Language ? F("Европа") : F("Europe"));
+content += F("</option></select>&emsp;<input type='submit' value='");
+content += (Language ? F("Сохранить") : F("Save"));
+content += F("' /><br><i>");
+content += (Language ? F("Европа в 4:00 в последнее воскресенье октября и в 3:00 в последнее воскресенье марта; ")
+                     : F("Europe at 4:00 am on the last sunday in October and at 3:00 am on the last sunday in March; "));
+content += (Language ? F("США в 2:00 во второе воскресенье марта и в 2:00 в первое воскресенье ноября.")
+                     : F("USA at 2:00 am on the second sunday of March and at 2:00 am on the first sunday of November."));
+content += F("</i></p></form>");
+content += F("<form method='get' form action='/setntpservername'><p>");
+content += (Language ? F("Сервер синхронизации времени") : F("Time synchronization server"));
+content += F(":&emsp;<input maxlength='32' name='sn' required size='32' type='text' value='");
+content += ntpServerName;
+content += F("' />&emsp;<input type='submit' value='");
+content += (Language ? F("Сохранить") : F("Save"));
+content += F("' /></p></form>");
+content += F("<form method='get' form action='/setlogin'><p>");
 content += (Language ? F("Имя авторизации") : F("Login name"));
 content += F(":&emsp;<input maxlength='10' name='ln' required size='10' type='text' value='");
 content += loginName + F("' /></p><p>");
 content += (Language ? F("Новый пароль") : F("New password"));
-content += F(":&emsp;<input maxlength='10' name='np' required size='10' type='password' />&emsp;");
-content += (Language ? F("Подтвердите новый пароль") : F("Confirm new password"));
-content += F(":&emsp;<input maxlength='10' name='npc' required size='10' type='password' />&emsp;");
+content += F(":&emsp;<input maxlength='12' name='np' required size='12' type='password' />&emsp;");
+content += (Language ? F("Подтвердите пароль") : F("Confirm password"));
+content += F(":&emsp;<input maxlength='12' name='npc' required size='12' type='password' />&emsp;");
 content += (Language ? F("Старый пароль") : F("Old password"));
-content += F(":&emsp;<input maxlength='10' name='op' required size='10' type='password'");
+content += F(":&emsp;<input maxlength='12' name='op' required size='12' type='password'");
 content += F(" />&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить") : F("Save"));
-content += F("' /></form>");
-content += F("<hr>");
+content += F("' /></p></form>");
+server.sendContent(content); content = "";
+// Settings WiFi
+drawWiFiSettings();
 // Settings files
-// Save
-struct tm *tinfo = gmtime(&log_today);
-content += F("<p><form method='get' form action='/savesettings'>");
-content += (Language ? F("Сохранить все настройки в файл") : F("Save all settings to file"));
-content += F(":&emsp;<input maxlength='30' name='fn' size='30' type='text' pattern='[a-zA-Z0-9-_.]+' required value='");
-content += String(1900 + tinfo->tm_year) + F("-")
-        + ( tinfo->tm_mon + 1 < 10 ? F("0") : F("") ) + String(tinfo->tm_mon + 1) + F("-")
-        + ( tinfo->tm_mday < 10 ? F("0") : F("") ) + String(tinfo->tm_mday) + F("-")
-        + ( curTimeHour < 10 ? F("0") : F("") ) + String(curTimeHour) + F("-")
-        + ( curTimeMin < 10 ? F("0") : F("") ) + String(curTimeMin) + F(".VTcfg");
-content += F("' />&emsp;<input type='submit' value='");
-content += (Language ? F("Сохранить") : F("Save"));
-content += F("' /></form></p>");
-int numFiles = 0;
-Dir dir = LittleFS.openDir("/");
-while ( dir.next() )
- {
- if ( dir.isFile() )
-  {
-  if ( dir.fileSize() )
-   {
-   File f = dir.openFile("r");
-   if ( f )
-    {
-    if ( String(f.name()) != "" && f.size() == (TASKLIST_EEPROM_ADDRESS + TASKLIST_MAX_NUMBER * TASK_NUM_ELEMENTS) )
-     { numFiles++; }
-    f.close();
-    }
-   }
-  } 
- yield();
- }
-if ( numFiles > 0 )
- {
- String arrFileNames[numFiles];
- dir.rewind();
- int fileNum = 0;
- do
-  {
-  if ( dir.fileName() != "" && dir.fileSize() == (TASKLIST_EEPROM_ADDRESS + TASKLIST_MAX_NUMBER * TASK_NUM_ELEMENTS) )
-   { arrFileNames[fileNum] = dir.fileName(); fileNum++; }
-  if ( fileNum >= numFiles ) { break; }
-  yield();
-  }
- while ( dir.next() ); 
- // Restore
- content += F("<form method='get' form action='/restoresettings' onsubmit='warn();return false;'>");
- content += (Language ? F("Восстановить настройки из файла") : F("Restore settings from file"));
- content += F(":&emsp;<select name='file' size='1'>");
- for ( int fileNum = 0; fileNum < numFiles; fileNum++ )
-  {
-  content += F("<option required value='"); 
-  content += arrFileNames[fileNum] + F("'>") + arrFileNames[fileNum] + F("</option>");       
-  yield();
-  }
- content += F("</select>&emsp;<input type='submit' value='");
- content += (Language ? F("Восстановить (будьте осторожны!) и перезагрузить") : F("Restore (be careful!) and reboot"));
- content += F("' /></form>");
- // Rename
- content += F("<form method='get' form action='/renamefile'>");
- content += (Language ? F("Переименовать файл") : F("Rename settings file"));
- content += F(":&emsp;<select name='file' size='1'>");
- for ( int fileNum = 0; fileNum < numFiles; fileNum++ )
-  {
-  content += F("<option required value='"); 
-  content += arrFileNames[fileNum] + F("'>") + arrFileNames[fileNum] + F("</option>");       
-  yield();
-  }
- content += F("</select>&emsp;");
- content += (Language ? F("Новое имя") : F("New name"));
- content += F(":&emsp;<input maxlength='30' name='nn' size='30' type='text' pattern='[a-zA-Z0-9-_.]+' required");
- content += F("/>&emsp;<input type='submit' value='");
- content += (Language ? F("Переименовать") : F("Rename"));
- content += F("' /></form>");
- // Delete
- content += F("<form method='get' form action='/deletefile' onsubmit='warn();return false;'>");
- content += (Language ? F("Удалить файл с настройками") : F("Delete settings file"));
- content += F(":&emsp;<select name='file' size='1'>");
- for ( int fileNum = 0; fileNum < numFiles; fileNum++ )
-  {
-  content += F("<option required value='"); 
-  content += arrFileNames[fileNum] + F("'>") + arrFileNames[fileNum] + F("</option>");       
-  yield();
-  }
- content += F("</select>&emsp;<input type='submit' value='");
- content += (Language ? F("Удалить (будьте осторожны!)") : F("Delete (be careful!)"));
- content += F("' /></form>");
- // Download
- content += F("<form method='post' form action='/downloadfile'>");
- content += (Language ? F("Выгрузить файл с настройками") : F("Download settings file"));
- content += F(":&emsp;<select name='file' size='1'>");
- for ( int fileNum = 0; fileNum < numFiles; fileNum++ )
-  {
-  content += F("<option required value='"); 
-  content += arrFileNames[fileNum] + F("'>") + arrFileNames[fileNum] + F("</option>");       
-  yield();
-  }
- content += F("</select>&emsp;<input type='submit' value='");
- content += (Language ? F("Выгрузить") : F("Download"));
- content += F("' /></form>");
- } // end of if ( numFiles > 0 )
-// Upload
-content += F("<form method='post' form action='/uploadfile' enctype='multipart/form-data'>");
-content += (Language ? F("Загрузить файл с настройками") : F("Upload settings file"));
-content += F(":&emsp;<input type='file' name='upload'><input type='submit' value='");
-content += (Language ? F("Загрузить") : F("Upload"));
-content += F("' /></form>");
-// Actions
+drawFilesSettings();
 content += F("<hr>");
+// Actions
 content += F("<form action='/firmware' form method='get'><input name='fwu' type='submit' value='");
 content += (Language ? F("Обновление прошивки") : F("Firmware update"));
 content += F("' /></form><form action='/cleartasklist' form method='get' onsubmit='warn();return false;'><input name='ctl' type='submit' value='");
@@ -988,6 +1393,20 @@ content += (Language ? F("Очистить и отключить все зада
 content += F("' /></form><form action='/reset' form method='get' onsubmit='warn();return false;'><input name='rst' type='submit' value='");
 content += (Language ? F("Сброс всех настроек (будьте осторожны!)") : F("Reset to defaults (be careful!)"));
 content += F("' /></form>");
+content += F("<form action='/restartapmode' form method='get' onsubmit='warn();return false;'><input name='rstrtap' type='submit' value='");
+content += (Language ? F("Перезагрузка в режим точки доступа") : F("Reboot to access point mode"));
+content += F("' />");
+content += F("&emsp;SSID: ");
+content += APMODE_SSID;
+content += F("&emsp;PASS: ");
+content += APMODE_PASSWORD;
+content += F("&emsp;URL: http://192.168.4.1");
+content += F("<br><i>");
+content += (Language ? F("При загрузке в рабочем режиме, в случае невозможности подключиться к WiFi в течение тридцати секунд, устройство перезагружается в режим точки доступа. ")
+                     : F("When booting in working mode, if it is not possible to connect to WiFi within thirty seconds, the device will reboot into access point mode. "));
+content += (Language ? F("В режиме точки доступа, в случае отсутствия подключений к http://192.168.4.1, через 10 минут устройство перезагружается в рабочий режим.")
+                     : F("In the access point mode, if there are no connections to http://192.168.4.1, after 10 minutes the device will reboot into working mode."));
+content += F("</i></form>");
 content += F("<form action='/restart' form method='get' onsubmit='warn();return false;'><input name='rstrt' type='submit' value='");
 content += (Language ? F("Перезагрузка") : F("Reboot"));
 content += F("' /></form></body></html>\r\n");
@@ -1014,6 +1433,86 @@ int EEPROMReadInt(int p_address)
 byte lowByte = EEPROM.read(p_address);
 byte highByte = EEPROM.read(p_address + 1);
 if ( (((lowByte << 0) & 0xFF) == 0xFF) && (((highByte << 0) & 0xFF) == 0xFF) ) { return 0; } else { return ((lowByte << 0) & 0xFF) + ((highByte << 8) & 0xFF00); }
+}
+
+void read_settings_from_EEPROM()
+{
+ChannelListCollapsed = EEPROM.read(CHANNELLISTCOLLAPSED_EEPROM_ADDRESS); 
+if ( ChannelListCollapsed != 0 && ChannelListCollapsed != 1 ) { ChannelListCollapsed = 0; } 
+TaskListCollapsed = EEPROM.read(TASKLISTCOLLAPSED_EEPROM_ADDRESS); 
+if ( TaskListCollapsed != 0 && TaskListCollapsed != 1 ) { TaskListCollapsed = 0; }
+Language = EEPROM.read(LANGUAGE_EEPROM_ADDRESS);
+if ( Language != 0 && Language != 1 ) { Language = 0; }
+log_DaysToKeep = EEPROM.read(LOG_DAYSTOKEEP_EEPROM_ADDRESS);
+if ( log_DaysToKeep > (littleFStotalBytes / littleFSblockSize) || log_DaysToKeep < 1 ) { log_DaysToKeep = 3; }
+log_ViewStep = EEPROM.read(LOG_VIEWSTEP_EEPROM_ADDRESS);
+if ( log_ViewStep > LOG_VIEWSTEP_MAX || log_ViewStep < LOG_VIEWSTEP_MIN ) { log_ViewStep = LOG_VIEWSTEP_DEF; }
+ntpTimeZone = EEPROM.read(NTP_TIME_ZONE_EEPROM_ADDRESS);
+ntpTimeZone = ntpTimeZone - 12;
+if ( ntpTimeZone > 24 ) { ntpTimeZone = NTP_DEFAULT_TIME_ZONE; }
+ntpDaylightSaveZone = EEPROM.read(NTP_DAYLIGHTSAVEZONE_EEPROM_ADDRESS);
+if ( ntpDaylightSaveZone != 0 && ntpDaylightSaveZone != 1 ) { ntpDaylightSaveZone = 0; } 
+ntpDaylightSave = EEPROM.read(NTP_DAYLIGHTSAVE_EEPROM_ADDRESS);
+if ( ntpDaylightSave != 0 && ntpDaylightSave != 1 ) { ntpDaylightSave = 1; } 
+wifiManuallySetAddresses = EEPROM.read(WIFI_MANUALLY_SET_EEPROM_ADDRESS);
+if ( wifiManuallySetAddresses != 0 && wifiManuallySetAddresses != 1 ) { wifiManuallySetAddresses = 0; } 
+numberOfTasks = EEPROM.read(NUMBER_OF_TASKS_EEPROM_ADDRESS);
+if ( numberOfTasks < TASKLIST_MIN_NUMBER || numberOfTasks > TASKLIST_MAX_NUMBER ) { numberOfTasks = 5; }
+TaskList = new uint8_t*[numberOfTasks];
+for ( int taskNum = 0; taskNum < numberOfTasks; taskNum++ ) { yield(); TaskList[taskNum] = new uint8_t[TASK_NUM_ELEMENTS]; }
+numberOfChannels = EEPROM.read(NUMBER_OF_CHANNELS_EEPROM_ADDRESS);
+if ( numberOfChannels < CHANNELLIST_MIN_NUMBER || numberOfChannels > CHANNELLIST_MAX_NUMBER ) { numberOfChannels = CHANNELLIST_MIN_NUMBER; }
+}
+
+void read_and_set_ntpservername_from_EEPROM()
+{
+ntpServerName = "";
+uint8_t b;
+for ( int i = NTP_TIME_SERVER_EEPROM_ADDRESS; i < NTP_TIME_SERVER_EEPROM_ADDRESS + 32; ++i) 
+ { b = EEPROM.read(i); if ( b > 0 && b < 255 ) { ntpServerName += char(b); } }
+if ( ntpServerName == "" ) { ntpServerName = NTP_SERVER_NAME; }
+timeClient.setPoolServerName(ntpServerName.c_str());
+timeClient.forceUpdate();
+}
+
+void read_login_pass_from_EEPROM()
+{
+loginName = "";
+loginPass = "";
+uint8_t b;
+for ( int i = LOGIN_NAME_EEPROM_ADDRESS; i < LOGIN_NAME_EEPROM_ADDRESS + 10; ++i) 
+ { b = EEPROM.read(i); if ( b > 0 && b < 255 ) { loginName += char(b); } }
+for ( int i = LOGIN_PASS_EEPROM_ADDRESS; i < LOGIN_PASS_EEPROM_ADDRESS + 12; ++i) 
+ { b = EEPROM.read(i); if ( b > 0 && b < 255 ) { loginPass += char(b); } }
+if ( loginName == "" || loginPass == "" )
+ { loginName = "admin"; loginPass = "admin"; }
+httpUpdater.setup(&server, "/firmware", loginName, loginPass);
+}
+
+void read_AP_name_pass_from_EEPROM()
+{
+AP_name = "";
+AP_pass = "";
+uint8_t b;
+for ( int i = AP_SSID_EEPROM_ADDRESS; i < AP_SSID_EEPROM_ADDRESS + 63; ++i) 
+ { b = EEPROM.read(i); if ( b > 0 && b < 255 ) { AP_name += char(b); } }
+for ( int i = AP_PASS_EEPROM_ADDRESS; i < AP_PASS_EEPROM_ADDRESS + 32; ++i) 
+ { b = EEPROM.read(i); if ( b > 0 && b < 255 ) { AP_pass += char(b); } }
+if ( AP_name == "" || AP_pass == "" )
+ {
+ AP_name = AP_SSID; 
+ AP_pass = AP_PASS;
+ }
+}
+
+void save_AP_name_pass_to_EEPROM()
+{
+for ( int i = AP_SSID_EEPROM_ADDRESS; i < AP_SSID_EEPROM_ADDRESS + 63; ++i) { EEPROM.write(i, 0); } // fill with 0
+for ( int i = AP_PASS_EEPROM_ADDRESS; i < AP_PASS_EEPROM_ADDRESS + 32; ++i) { EEPROM.write(i, 0); } // fill with 0
+for ( unsigned int i = 0; i < AP_name.length(); ++i ) { EEPROM.write(i + AP_SSID_EEPROM_ADDRESS, AP_name[i]); }
+for ( unsigned int i = 0; i < AP_pass.length(); ++i ) { EEPROM.write(i + AP_PASS_EEPROM_ADDRESS, AP_pass[i]); }
+EEPROM.commit();
+read_AP_name_pass_from_EEPROM();
 }
 
 int find_duplicate_or_conflicting_task(int findNUM)
@@ -1064,33 +1563,11 @@ for ( int chNum = 0; chNum < numberOfChannels - 1; chNum++ )
 return found;
 }
 
-void read_login_pass_from_EEPROM()
-{
-loginName = "";
-loginPass = "";
-if ( EEPROM.read(LOGIN_NAME_PASS_EEPROM_ADDRESS + 22) != 0 )
- {
- loginName = "admin";
- loginPass = "admin";
- }
-else
- { 
- for ( int i = LOGIN_NAME_PASS_EEPROM_ADDRESS;      i < (LOGIN_NAME_PASS_EEPROM_ADDRESS + 11); ++i) { if ( EEPROM.read(i) != 0 ) loginName += char(EEPROM.read(i)); }
- for ( int i = LOGIN_NAME_PASS_EEPROM_ADDRESS + 11; i < (LOGIN_NAME_PASS_EEPROM_ADDRESS + 22); ++i) { if ( EEPROM.read(i) != 0 ) loginPass += char(EEPROM.read(i)); }
- if ( loginName == "" || loginPass == "" )
-  {
-  loginName = "admin";
-  loginPass = "admin";
-  }
- }
-httpUpdater.setup(&server, "/firmware", loginName, loginPass);
-}
-
-byte find_next_tasks_within_day(int findChannel, int findDOW, int hh, int mm, int ss)
+byte find_next_tasks_within_day(int findChannel, int curDOW, int findDOW, int hh, int mm, int ss)
 {
 int taskNum;  
 byte found = TASKLIST_MAX_NUMBER;
-if ( findDOW != curDayOfWeek ) { hh = 0; mm = 0; ss = 0; }
+if ( findDOW != curDOW ) { hh = 0; mm = 0; ss = 0; }
 for ( taskNum = 0; taskNum <= numberOfTasks - 1; taskNum++ )
  {
  yield(); 
@@ -1118,18 +1595,19 @@ return found;
 void find_next_tasks()  
 {
 if ( !thereAreEnabledTasks ) { return; }  
-int findDOW, chNum;
+int chNum, findDOW;
 byte foundTask, DaysCounter;
+struct tm *tinfo = gmtime(&curEpochTime);
 for ( chNum = 0; chNum < numberOfChannels; chNum++ )
  {
  yield(); 
  if ( NumEnabledTasks[chNum] == 0 ) { continue; }
- findDOW = curDayOfWeek;
  foundTask = TASKLIST_MAX_NUMBER;  
+ findDOW = tinfo->tm_wday;
  DaysCounter = 0;
  while ( DaysCounter < 7 ) 
   {
-  foundTask = find_next_tasks_within_day(chNum, findDOW, curTimeHour, curTimeMin, curTimeSec);
+  foundTask = find_next_tasks_within_day(chNum, tinfo->tm_wday, findDOW, tinfo->tm_hour, tinfo->tm_min, tinfo->tm_sec);
   if ( foundTask < TASKLIST_MAX_NUMBER ) { break; }
   DaysCounter++;
   if ( findDOW == 6 ) { findDOW = 0; } else { findDOW++; }
@@ -1138,11 +1616,11 @@ for ( chNum = 0; chNum < numberOfChannels; chNum++ )
  }
 }
 
-byte check_previous_tasks_within_day(int findChannel, int findDOW, int hh, int mm, int ss)
+byte check_previous_tasks_within_day(int findChannel, int curDOW, int findDOW, int hh, int mm, int ss)
 {
 int taskNum;  
 byte found = TASKLIST_MAX_NUMBER;
-if ( findDOW != curDayOfWeek ) { hh = 23; mm = 59; ss = 95; }
+if ( findDOW != curDOW ) { hh = 23; mm = 59; ss = 95; }
 for ( taskNum = numberOfTasks - 1; taskNum >= 0; taskNum-- )
  {
  yield(); 
@@ -1171,8 +1649,9 @@ void check_previous_tasks()
 {
 if ( !thereAreEnabledTasks ) { return; }  
 bool needSave = false;  
-int findDOW, chNum;
+int chNum, findDOW;
 byte foundTask, DaysCounter;
+struct tm *tinfo = gmtime(&curEpochTime);
 for ( chNum = 0; chNum < numberOfChannels; chNum++ )
  {
  yield(); 
@@ -1194,12 +1673,12 @@ for ( chNum = 0; chNum < numberOfChannels; chNum++ )
    }  
   continue;
   }
- findDOW = curDayOfWeek;
+ findDOW = tinfo->tm_wday;
  foundTask = TASKLIST_MAX_NUMBER;  
  DaysCounter = 0;
  while ( DaysCounter < 7 ) 
   {
-  foundTask = check_previous_tasks_within_day(chNum, findDOW, curTimeHour, curTimeMin, curTimeSec);
+  foundTask = check_previous_tasks_within_day(chNum, tinfo->tm_wday, findDOW, tinfo->tm_hour, tinfo->tm_min, tinfo->tm_sec);
   if ( foundTask < TASKLIST_MAX_NUMBER ) { break; }
   DaysCounter++;
   if ( findDOW == 0 ) { findDOW = 6; } else { findDOW--; }
@@ -1244,6 +1723,9 @@ void read_and_sort_tasklist_from_EEPROM()
 int taskNum, task_element_num, taskAddress;
 uint8_t TaskListRAW[numberOfTasks][TASK_NUM_ELEMENTS];
 uint8_t IndexArray[numberOfTasks];
+#ifdef DEBUG 
+ Serial.println(F("Reading tasks"));
+#endif
 for ( taskNum = 0; taskNum < numberOfTasks; taskNum++ )
  {
  taskAddress = TASKLIST_EEPROM_ADDRESS + taskNum * TASK_NUM_ELEMENTS;
@@ -1332,7 +1814,7 @@ void read_channellist_from_EEPROM_and_switch_channels()
 {
 int chNum, ch_element_num;
 #ifdef DEBUG 
- Serial.println(F("Reading channels and switch channels if needed"));
+ Serial.println(F("Reading and switching channels"));
 #endif
 for ( chNum = 0; chNum < numberOfChannels; chNum++ )
  {
@@ -1386,7 +1868,8 @@ void setupServer()
 server.on("/",[]() 
  {
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
- drawHomePage(); 
+ if ( !AccessPointMode ) { drawHeader(0); drawHomePage(); }
+                   else  { drawHeader(2); drawWiFiSettings(); AccessPointModeTimer = millis(); }
  });
 server.on("/settask", []() 
  {
@@ -1613,6 +2096,8 @@ server.on("/setchannelparams", []()
   } 
  buf = server.arg(1);
  param = buf.toInt();
+ if ( NodeMCUpins[param] == "N/A" )
+  { ServerSendMessageAndRefresh( 3, "/", (Language ? F("Не используйте GPIO 6,7,8 и 11 !") : F("Don't use GPIO 6,7,8 and 11 !"))); return;}
  if ( param >= 0 && param <= GPIO_MAX_NUMBER && NodeMCUpins[param] != "N/A" )
   { if ( ChannelList[chNum][CHANNEL_GPIO] != param ) 
      {
@@ -1642,7 +2127,7 @@ server.on("/setlanguage", []()
  String buf = server.arg(0);
  int param = buf.toInt();
  if ( param == 10 || param == 11 ) 
-  { if ( Language != param ) 
+  { if ( Language != param - 10 ) 
      {
      Language = ( param == 10 ? 0 : 1 ); 
      EEPROM.write(LANGUAGE_EEPROM_ADDRESS, Language);
@@ -1659,12 +2144,57 @@ server.on("/setntpTimeZone", []()
  if ( ntpTimeZone != param ) 
   {
   ntpTimeZone = param; 
-  timeClient.setTimeOffset(ntpTimeZone * 3600);
+  check_DaylightSave();
   EEPROM.write(NTP_TIME_ZONE_EEPROM_ADDRESS, ntpTimeZone + 12); EEPROM.commit();
   ServerSendMessageAndReboot();
   }
  ServerSendMessageAndRefresh();
  }); 
+server.on("/setntpdaylightsave", []() 
+ { 
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ String buf = server.arg(0);
+ int param = buf.toInt();
+ if ( param == 10 || param == 11 ) 
+  { if ( ntpDaylightSave != param - 10 ) 
+     {
+     ntpDaylightSave = ( param == 10 ? 0 : 1 ); 
+     EEPROM.write(NTP_DAYLIGHTSAVE_EEPROM_ADDRESS, ntpDaylightSave);
+     EEPROM.commit();
+     check_DaylightSave();
+     }
+  }  
+ ServerSendMessageAndRefresh();
+ });
+server.on("/setntpdaylightsavezone", []() 
+ { 
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ String buf = server.arg(0);
+ int param = buf.toInt();
+ if ( param == 10 || param == 11 ) 
+  { if ( ntpDaylightSaveZone != param - 10 ) 
+     {
+     ntpDaylightSaveZone = ( param == 10 ? 0 : 1 ); 
+     EEPROM.write(NTP_DAYLIGHTSAVEZONE_EEPROM_ADDRESS, ntpDaylightSaveZone);
+     EEPROM.commit();
+     check_DaylightSave();
+     }
+  }  
+ ServerSendMessageAndRefresh();
+ });
+server.on("/setntpservername", []() 
+ {
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ String nname = server.arg(0);
+ if ( nname.length() > 0 && nname.length() <= 32 && nname.compareTo(ntpServerName) != 0 )
+  {
+  for ( int i = NTP_TIME_SERVER_EEPROM_ADDRESS; i < NTP_TIME_SERVER_EEPROM_ADDRESS + 32; ++i) { EEPROM.write(i, 0); } // fill with 0
+  for ( unsigned int i = 0; i < nname.length(); ++i ) { EEPROM.write(i + NTP_TIME_SERVER_EEPROM_ADDRESS, nname[i]); }
+  EEPROM.commit();
+  read_and_set_ntpservername_from_EEPROM();
+  ServerSendMessageAndRefresh();
+  }
+ });
 server.on("/setlogin", []() 
  {
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
@@ -1674,36 +2204,117 @@ server.on("/setlogin", []()
  if ( qlogin.length() > 0 && qlogin.length() <= 10 && qpass1.length() > 0 && qpass1.length() <= 10 && oldpass.length() > 0 && oldpass.length() <= 10 
    && qpass1 == server.arg(2) && oldpass == loginPass )
   {
-  for ( int i = LOGIN_NAME_PASS_EEPROM_ADDRESS; i <= (LOGIN_NAME_PASS_EEPROM_ADDRESS + 22); ++i ) { EEPROM.write(i, 0); } // fill with 0
-  for ( unsigned int i = 0; i < qlogin.length(); ++i ) { EEPROM.write(i + LOGIN_NAME_PASS_EEPROM_ADDRESS, qlogin[i]); }
-  for ( unsigned int i = 0; i < qpass1.length(); ++i ) { EEPROM.write(i + LOGIN_NAME_PASS_EEPROM_ADDRESS + 11, qpass1[i]); }
+  for ( int i = LOGIN_NAME_EEPROM_ADDRESS; i < LOGIN_NAME_EEPROM_ADDRESS + 10; ++i ) { EEPROM.write(i, 0); } // fill with 0
+  for ( int i = LOGIN_PASS_EEPROM_ADDRESS; i < LOGIN_PASS_EEPROM_ADDRESS + 12; ++i ) { EEPROM.write(i, 0); } // fill with 0
+  for ( unsigned int i = 0; i < qlogin.length(); ++i ) { EEPROM.write(i + LOGIN_NAME_EEPROM_ADDRESS, qlogin[i]); }
+  for ( unsigned int i = 0; i < qpass1.length(); ++i ) { EEPROM.write(i + LOGIN_PASS_EEPROM_ADDRESS, qpass1[i]); }
   EEPROM.commit();
   read_login_pass_from_EEPROM();
   ServerSendMessageAndRefresh();
   }
  else { ServerSendMessageAndRefresh( 3, "/", (Language ? F("Неверные данные или пароли не совпадают...") : F("Incorrect data or passwords do not match...")) ); }
  });  
+server.on("/wifisetting", []() 
+ {
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ boolean needReboot = false;
+ String tmpPassword = ( server.arg(1) != "" ? server.arg(1) : AP_pass );
+ if ( wifiManuallySetIP.toString()     != server.arg(3) 
+   || wifiManuallySetSUBNET.toString() != server.arg(4) 
+   || wifiManuallySetGW.toString()     != server.arg(5) 
+   || wifiManuallySetDNS.toString()    != server.arg(6)
+   || wifiManuallySetAddresses != server.arg(2).toInt() ) { needReboot = true; }
+ if ( server.arg(0) != "" && server.arg(1) != "" )
+  { if ( server.arg(0) != AP_name || server.arg(1) != AP_pass ) { needReboot = true; } }
+ if ( needReboot ) 
+  {
+  ServerSendMessageAndRefresh( 10, "/", (Language ? F("Попытка переподключиться...") : F("Trying to reconnect...")) );
+  yield();
+  delay(500);
+  server.stop();
+  WiFi.disconnect(true);
+  if ( WiFi.getPersistent() ) { WiFi.persistent(false); } // disable saving wifi config into SDK flash area
+  WiFi.mode(WIFI_OFF);
+  WiFi.persistent(true);
+  WiFi.setAutoConnect(false);
+  WiFi.setAutoReconnect(false);
+  yield();
+  delay(500);
+  WiFi.softAPdisconnect(true);
+  if ( server.arg(2).toInt() > 0 ) 
+   {
+   IPAddress ip; ip.fromString(server.arg(3));
+   IPAddress sn; sn.fromString(server.arg(4));  
+   IPAddress gw; gw.fromString(server.arg(5));
+   IPAddress dn; dn.fromString(server.arg(6));
+   WiFi.config(ip, gw, sn, dn);
+   }   
+  WiFi.begin(server.arg(0), tmpPassword);
+  #ifdef DEBUG 
+   Serial.print(F("Trying to reconnect "));
+   Serial.println(server.arg(0));
+  #endif
+  int ct = 60;
+  while ( WiFi.status() != WL_CONNECTED && ct > 0 ) 
+   {
+   yield(); delay(500); ct--;
+   #ifdef DEBUG 
+    Serial.print(F("."));
+   #endif
+   }
+  #ifdef DEBUG 
+   Serial.println();
+  #endif
+  if ( WiFi.status() == WL_CONNECTED ) 
+   {
+   AP_name = server.arg(0); 
+   AP_pass = tmpPassword;
+   save_AP_name_pass_to_EEPROM();  
+   wifiManuallySetIP.fromString(server.arg(3));
+   wifiManuallySetSUBNET.fromString(server.arg(4));
+   wifiManuallySetGW.fromString(server.arg(5));
+   wifiManuallySetDNS.fromString(server.arg(6));
+   save_manually_set_addresses();
+   wifiManuallySetAddresses = server.arg(2).toInt();
+   EEPROM.write(WIFI_MANUALLY_SET_EEPROM_ADDRESS, server.arg(2).toInt());
+   EEPROM.commit();
+   #ifdef DEBUG 
+    Serial.println(F("Connected to ")); Serial.println(AP_name);
+   #endif
+   }
+  else
+   {
+   #ifdef DEBUG 
+    Serial.println(F("Can't connect to WiFi.")); 
+   #endif
+   }
+  server.stop();
+  delay(500);
+  ESP.restart(); 
+  }
+ else { ServerSendMessageAndRefresh(); }
+ });
 server.on("/savesettings", []() 
  {
- if ( !littleFS_OK ) { return; }
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  String fileName = server.arg(0);
  File f = LittleFS.open(fileName, "w");
  if ( f ) 
   {
-  for ( int i = 0; i < (TASKLIST_EEPROM_ADDRESS + TASKLIST_MAX_NUMBER * TASK_NUM_ELEMENTS); i++ )
+  boolean writeerror = false;
+  for ( int i = 0; i < MAX_EEPROM_ADDRESS; i++ )
    { 
    uint8_t b = EEPROM.read(i);
-   f.write((uint8_t *)&b, sizeof(b));
+   if ( f.write((uint8_t *)&b, sizeof(b)) == 0 ) { writeerror = true; break; }
    }   
   f.close();
-  ServerSendMessageAndRefresh( 3, "/", (Language ? F("Сохранено в файл ") : F("Saved to file ")), fileName );
+  if ( writeerror ) { ServerSendMessageAndRefresh( 3, "/", (Language ? F("ОШИБКА записи в файл ") : F("ERROR saving to file ")), fileName ); }
+               else { ServerSendMessageAndRefresh( 3, "/", (Language ? F("Сохранено в файл ") : F("Saved to file ")), fileName ); }
   }
  else { ServerSendMessageAndRefresh( 3, "/", (Language ? F("ОШИБКА !") : F("ERROR !")) ); }
  });  
 server.on("/restoresettings", []() 
  {
- if ( !littleFS_OK ) { return; }
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  String fileName = server.arg(0);
  File f = LittleFS.open(fileName, "r");
@@ -1719,7 +2330,7 @@ server.on("/restoresettings", []()
     b = f.read();
     EEPROM.write(i, b);
     i++;
-    if ( i >= (TASKLIST_EEPROM_ADDRESS + TASKLIST_MAX_NUMBER * TASK_NUM_ELEMENTS) ) { break; }
+    if ( i >= MAX_EEPROM_ADDRESS ) { break; }
     }   
    f.close();
    EEPROM.commit();
@@ -1735,7 +2346,6 @@ server.on("/restoresettings", []()
  });  
 server.on("/renamefile", []() 
  {
- if ( !littleFS_OK ) { return; }
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  String oldName = server.arg(0);
  String newName = server.arg(1);
@@ -1746,7 +2356,6 @@ server.on("/renamefile", []()
  });  
 server.on("/deletefile", []() 
  {
- if ( !littleFS_OK ) { return; }
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  String fileName = server.arg(0);
  if ( LittleFS.exists(fileName) ) 
@@ -1758,7 +2367,6 @@ server.on("/deletefile", []()
  });  
 server.on("/downloadfile", HTTP_POST, []()
  {
- if ( !littleFS_OK ) { return; }
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  String fileName = server.arg(0);
  if ( LittleFS.exists(fileName) ) 
@@ -1778,18 +2386,55 @@ server.on("/downloadfile", HTTP_POST, []()
 server.onFileUpload(handleFileUpload);
 server.on("/uploadfile", HTTP_POST, []()
  {
- ServerSendMessageAndRefresh( 3, "/", (Language ? F("Файл загружен") : F("File downloaded") ));
+ ServerSendMessageAndRefresh( 3, "/", (Language ? F("Файл загружен") : F("File uploaded") ));
  });
 server.on("/reset", []()  
  {
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
- EEPROMWriteInt(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS, 0); 
+ EEPROM.write(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS, 0); 
+ EEPROM.commit();
+ ServerSendMessageAndReboot();
+ }); 
+server.on("/restartapmode", []()  
+ {
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ String mess = (Language ? F("Точка доступа:") : F("Access Point:<br> SSID = ")); 
+ mess += APMODE_SSID; 
+ mess += F("<br> Password = "); 
+ mess += APMODE_PASSWORD;
+ mess += F("<br> URL = http://192.168.4.1 <br><br>");
+ EEPROM.write(ACCESS_POINT_SIGNATURE_EEPROM_ADDRESS, ACCESS_POINT_SIGNATURE); 
+ EEPROM.commit();
+ ServerSendMessageAndRefresh( 10, "/", mess );
+ delay(8000); 
  ServerSendMessageAndReboot();
  }); 
 server.on("/restart", []()  
  {
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  ServerSendMessageAndReboot();
+ }); 
+server.on("/settasklistcollapsed", []()  
+ {
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ TaskListCollapsed = !TaskListCollapsed;
+ if ( EEPROM.read(TASKLISTCOLLAPSED_EEPROM_ADDRESS) != TaskListCollapsed )
+  {
+  EEPROM.write(TASKLISTCOLLAPSED_EEPROM_ADDRESS, TaskListCollapsed);
+  EEPROM.commit();
+  }
+ ServerSendMessageAndRefresh();
+ }); 
+server.on("/setchannellistcollapsed", []()  
+ {
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ ChannelListCollapsed = !ChannelListCollapsed;
+ if ( EEPROM.read(CHANNELLISTCOLLAPSED_EEPROM_ADDRESS) != ChannelListCollapsed )
+  {
+  EEPROM.write(CHANNELLISTCOLLAPSED_EEPROM_ADDRESS, ChannelListCollapsed);
+  EEPROM.commit();
+  }
+ ServerSendMessageAndRefresh();
  }); 
 server.on("/viewlog", []()
  { 
@@ -1801,6 +2446,7 @@ server.on("/viewlog", []()
 server.on("/log",[]() 
  {
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ drawHeader(1);
  drawLOG(); 
  });
 server.on("/log_first", []()
@@ -1890,7 +2536,7 @@ server.on("/setlog_ViewStep", []()
 void setup()
 {
 #ifdef DEBUG 
- Serial.begin(9600, SERIAL_8N1, SERIAL_TX_ONLY);
+ Serial.begin(9600);
  Serial.println();
  Serial.println(F("Versatile timer started"));
  Serial.println(F("Inizializing LittleFS..."));
@@ -1899,25 +2545,29 @@ littleFS_OK = LittleFS.begin();
 #ifdef DEBUG 
  if ( littleFS_OK ) { Serial.println(F("done.")); } else { Serial.println(F("FAIL!")); }
 #endif 
-EEPROM.begin(TASKLIST_EEPROM_ADDRESS);
-// Check signature to verify the first run on the device and prepare EEPROM
-if ( EEPROMReadInt(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS) != FIRST_RUN_SIGNATURE ) 
+if ( littleFS_OK ) 
+ {
+ FSInfo fs_info;
+ LittleFS.info(fs_info);
+ littleFStotalBytes = fs_info.totalBytes;
+ littleFSblockSize = fs_info.blockSize;
+ }
+EEPROM.begin(MAX_EEPROM_ADDRESS);
+// Check signature to detect first run on the device and prepare EEPROM
+if ( EEPROM.read(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS) != FIRST_RUN_SIGNATURE ) 
  {
  #ifdef DEBUG 
   Serial.println(F("First run on the device detected."));
   Serial.print(F("Preparing EEPROM addresses from 0 to "));
-  Serial.println(TASKLIST_EEPROM_ADDRESS + TASKLIST_MAX_NUMBER * TASK_NUM_ELEMENTS);
+  Serial.println(MAX_EEPROM_ADDRESS);
  #endif 
- WiFi.disconnect(true);
- EEPROM.end();
- EEPROM.begin(TASKLIST_EEPROM_ADDRESS + TASKLIST_MAX_NUMBER * TASK_NUM_ELEMENTS);
- for ( int i = 0; i < (TASKLIST_EEPROM_ADDRESS + TASKLIST_MAX_NUMBER * TASK_NUM_ELEMENTS); i++ ) { EEPROM.write(i, 0); }
- EEPROMWriteInt(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS, FIRST_RUN_SIGNATURE); 
- EEPROM.write(LOG_DAYSTOKEEP_EEPROM_ADDRESS, DAYSTOKEEP_DEF);
+ for ( int i = 0; i < MAX_EEPROM_ADDRESS; i++ ) { EEPROM.write(i, 0); }
+ EEPROM.write(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS, FIRST_RUN_SIGNATURE); 
+ EEPROM.write(LOG_DAYSTOKEEP_EEPROM_ADDRESS, 3);
  EEPROM.write(LOG_VIEWSTEP_EEPROM_ADDRESS, LOG_VIEWSTEP_DEF);
  EEPROM.write(NTP_TIME_ZONE_EEPROM_ADDRESS, NTP_DEFAULT_TIME_ZONE + 12);
+ EEPROM.write(NTP_DAYLIGHTSAVE_EEPROM_ADDRESS, 1);
  EEPROM.commit();
- EEPROM.end();
  #ifdef DEBUG 
   Serial.println(F("Formatting LittleFS"));
  #endif   
@@ -1928,22 +2578,17 @@ if ( EEPROMReadInt(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS) != FIRST_RUN_SIGNATURE )
  #endif 
  ESP.restart();
  }
-Language = EEPROM.read(LANGUAGE_EEPROM_ADDRESS);
-if ( Language != 0 && Language != 1 ) { Language = 0; }
-log_DaysToKeep = EEPROM.read(LOG_DAYSTOKEEP_EEPROM_ADDRESS);
-if ( log_DaysToKeep > DAYSTOKEEP_MAX || log_DaysToKeep < DAYSTOKEEP_MIN ) { log_DaysToKeep = DAYSTOKEEP_DEF; }
-log_ViewStep = EEPROM.read(LOG_VIEWSTEP_EEPROM_ADDRESS);
-if ( log_ViewStep > LOG_VIEWSTEP_MAX || log_ViewStep < LOG_VIEWSTEP_MIN ) { log_ViewStep = LOG_VIEWSTEP_DEF; }
-ntpTimeZone = EEPROM.read(NTP_TIME_ZONE_EEPROM_ADDRESS);
-ntpTimeZone = ntpTimeZone - 12;
-if ( ntpTimeZone > 24 ) { ntpTimeZone = NTP_DEFAULT_TIME_ZONE; }
-numberOfTasks = EEPROM.read(NUMBER_OF_TASKS_EEPROM_ADDRESS);
-if ( numberOfTasks < TASKLIST_MIN_NUMBER || numberOfTasks > TASKLIST_MAX_NUMBER ) { numberOfTasks = 5; }
-TaskList = new uint8_t*[numberOfTasks];
-for ( int taskNum = 0; taskNum < numberOfTasks; taskNum++ ) { yield(); TaskList[taskNum] = new uint8_t[TASK_NUM_ELEMENTS]; }
-numberOfChannels = EEPROM.read(NUMBER_OF_CHANNELS_EEPROM_ADDRESS);
-if ( numberOfChannels < CHANNELLIST_MIN_NUMBER || numberOfChannels > CHANNELLIST_MAX_NUMBER ) { numberOfChannels = CHANNELLIST_MIN_NUMBER; }
-EEPROM.end();
+// Check signature to set AccessPointMode after start
+if ( EEPROM.read(ACCESS_POINT_SIGNATURE_EEPROM_ADDRESS) == ACCESS_POINT_SIGNATURE ) 
+ {
+ AccessPointMode = true;
+ EEPROM.write(ACCESS_POINT_SIGNATURE_EEPROM_ADDRESS, 0); 
+ EEPROM.commit();
+ }
+read_settings_from_EEPROM();
+read_and_set_ntpservername_from_EEPROM();
+read_login_pass_from_EEPROM();
+read_AP_name_pass_from_EEPROM();
 ChannelList = new uint8_t*[numberOfChannels];
 for ( int chNum = 0; chNum < numberOfChannels; chNum++ ) 
  {
@@ -1953,71 +2598,50 @@ for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
  NextTasksList[chNum] = 255;
  NumEnabledTasks[chNum] = 0;
  }
-EEPROM.begin(TASKLIST_EEPROM_ADDRESS + numberOfTasks * TASK_NUM_ELEMENTS);
-read_login_pass_from_EEPROM();
-read_channellist_from_EEPROM_and_switch_channels();
-read_and_sort_tasklist_from_EEPROM();
-//
-#ifdef USE_FIXED_IP_ADDRESSES 
- if ( !WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS) )
-  {
-  #ifdef DEBUG
-   Serial.println(F("Failed to configure fixed IP addresses."));
-   while ( true ) { yield(); }
-  #endif 
-  }
-#endif
-WiFi.mode(WIFI_STA);
-WiFi.begin(AP_SSID, AP_PASS);
-delay(500);
-int ct = 60;
-#ifdef DEBUG 
- Serial.print(F("Connecting to "));
- Serial.println(AP_SSID);
-#endif
-while ( WiFi.status() != WL_CONNECTED && (ct > 0) )
- {
- yield(); delay(500); ct--;
- #ifdef DEBUG 
-  Serial.print(F("."));
- #endif
+if ( !AccessPointMode )
+ { 
+ read_channellist_from_EEPROM_and_switch_channels();
+ read_and_sort_tasklist_from_EEPROM();
  }
-#ifdef DEBUG 
- Serial.println();
-#endif
-statusWiFi = ( WiFi.status() == WL_CONNECTED );
-#ifdef DEBUG 
- if ( statusWiFi ) 
-  {
-  Serial.print(F("Connected to ")); Serial.println(AP_SSID);
-  Serial.print(F("MAC address ")); Serial.println(WiFi.macAddress());
-  Serial.print(F("Server can be accessed at http://")); Serial.println(WiFi.localIP());
-  Serial.print(F("                    or at http://")); Serial.print(MDNSHOST); Serial.println(F(".local"));
-  }
- else { Serial.println(F("WiFi NOT connected now.")); }
-#endif
-if ( !WiFi.getAutoConnect() ) WiFi.setAutoConnect(true);
-WiFi.setAutoReconnect(true);
-WiFi.persistent(true);
+// 
+read_manually_set_addresses();
+if ( !AccessPointMode ) { statusWiFi = begin_WiFi_STA(); }
+                   else { statusWiFi = begin_WiFi_AP(); }
+if ( ipEmpty(wifiManuallySetIP) )     { wifiManuallySetIP = WiFi.localIP(); }
+if ( ipEmpty(wifiManuallySetGW) )     { wifiManuallySetGW = WiFi.gatewayIP(); }
+if ( ipEmpty(wifiManuallySetDNS) )    { wifiManuallySetDNS = WiFi.dnsIP(); }
+if ( ipEmpty(wifiManuallySetSUBNET) ) { wifiManuallySetSUBNET = WiFi.subnetMask(); }
 //
 counterOfReboots = EEPROMReadInt(COUNTER_OF_REBOOTS_EEPROM_ADDRESS);
 if ( counterOfReboots < 0 || counterOfReboots > 32766 ) { counterOfReboots = 0; }
 counterOfReboots++;
 EEPROMWriteInt(COUNTER_OF_REBOOTS_EEPROM_ADDRESS, counterOfReboots); 
 //
-timeClient.begin();
-timeClient.setTimeOffset(ntpTimeZone * 3600);
 setupServer();
 server.begin();
-if ( MDNS.begin(MDNSHOST) ) {  MDNS.addService("http", "tcp", 80); }
+if ( !AccessPointMode ) 
+ {
+ timeClient.begin();
+ timeClient.setTimeOffset(ntpTimeZone * 3600);
+ if ( MDNS.begin(MDNSHOST) ) { MDNS.addService("http", "tcp", 80); }
+ }
 ESP.wdtEnable(WDTO_8S);
 everySecondTimer = millis();
+everyMinuteTimer = millis();
 CheckTaskListTimer = millis();
+if ( AccessPointMode ) { AccessPointModeTimer = millis(); }
 }
 
 void loop()
 {
-yield(); delay(0);  
+yield(); delay(0);
+if ( AccessPointMode ) 
+ {
+ server.handleClient();
+ MDNS.update();
+ if ( millis() - AccessPointModeTimer > ACCESS_POINT_MODE_TIMER_INTERVAL ) { ServerSendMessageAndReboot(); }
+ return;
+ }  
 statusWiFi = ( WiFi.status() == WL_CONNECTED );  
 if ( statusWiFi ) 
  {
@@ -2025,7 +2649,8 @@ if ( statusWiFi )
  MDNS.update();
  timeSyncOK = timeClient.update(); 
  } 
-else { timeSyncOK = false; }
+else
+ { timeSyncOK = false; }
 if ( timeSyncOK )
  {
  unsigned long difference = 0;
@@ -2037,22 +2662,22 @@ if ( timeSyncOK )
  if ( difference < EPOCHTIMEMAXDIFF ) // check the correctness of the received time relative to the set
   { 
   curEpochTime = timeClient.getEpochTime();  
-  curTimeHour  = timeClient.getHours();
-  curTimeMin   = timeClient.getMinutes();
-  curTimeSec   = timeClient.getSeconds();
-  curDayOfWeek = timeClient.getDay(); // 0 - Sunday, 1...5 - Monday...Friday, 6 - Saturday
   if ( !timeSyncInitially ) 
    {
+   check_DaylightSave(); 
    check_previous_tasks(); 
    find_next_tasks();
    timeClient.setUpdateInterval(NTPUPDATEINTERVAL);
    timeSyncInitially = true;
-   if ( littleFS_OK ) { log_process(); }
-   log_Append(EVENT_START,0,0,0);
+   if ( littleFS_OK ) 
+    {
+    log_process();
+    log_Append(EVENT_START,0,0,0);
+    }
+   everyMinuteTimer = millis();
    }
   }
  } 
-//
 if ( millis() - everySecondTimer > 1000 )
  {
  setClockcurrentMillis = millis();  
@@ -2063,16 +2688,7 @@ if ( millis() - everySecondTimer > 1000 )
   setClockelapsedMillis += (setClockcurrentMillis - setClockpreviousMillis);
   while ( setClockelapsedMillis > 999 )
    {
-   curTimeSec++;
    curEpochTime++;
-   if ( curTimeSec > 59 ) { curTimeMin++;  curTimeSec = 0; }
-   if ( curTimeMin > 59 ) { curTimeHour++; curTimeMin = 0; }
-   if ( curTimeHour > 23 ) 
-    {
-    curTimeHour = 0;
-    curDayOfWeek++;
-    if ( curDayOfWeek > 6 ) { curDayOfWeek = 0; } // 0 - Sunday, 1 - Monday, 6 - Saturday
-    }
    setClockelapsedMillis -= 1000;
    }
   timeSyncOK = true; 
@@ -2081,7 +2697,11 @@ if ( millis() - everySecondTimer > 1000 )
  setClockpreviousMillis = setClockcurrentMillis; 
  everySecondTimer = millis(); 
  } 
-//
+if ( millis() - everyMinuteTimer > 60000 )
+ {
+ check_DaylightSave();
+ everyMinuteTimer = millis();
+ } 
 if ( millis() - CheckTaskListTimer > 500 )
  {
  if ( timeSyncOK ) { check_previous_tasks(); find_next_tasks(); } 

@@ -24,7 +24,7 @@ Channel management is possible by tasks, manually until the next task, only manu
   - manually until the next task and only manually - after a power failure, the last channel state is restored;
   - by tasks - after a power failure, the state is set in which the channel should be in accordance with the task settings for the current day of the week and time of day;
 
-Channel state changes log.
+Keeping event logs for a specified number of days.
 
 Ability to save / restore all settings to files on the ESP8266, upload / download files via the web interface.
 
@@ -40,9 +40,15 @@ Indication of duplicate and conflicting tasks.
 
 Indication of duplicate channels.
 
-The time zone is configured in the web interface.
+Configuring a time synchronization server, time zone and daylight saving via the web interface.
+
+Selecting a WiFi access point for connection and the mode of obtaining IP addresses (DHCP - fixed) via the web interface.
+
+When booting in working mode, if it is not possible to connect to WiFi within thirty seconds, the device will reboot into access point mode. In the access point mode, if there are no connections to http://192.168.4.1, after 10 minutes the device will reboot into working mode.
 
 Downloading firmware via web interface.
+
+Reboot to access point mode (SSID: VT_SETUP , PASS: 319319319 , URL: http://192.168.4.1) via the web interface.
 
 Rebooting via the web interface.
 
@@ -71,7 +77,7 @@ With Multicast DNS (mDNS) available as host vt.local.
   - вручную до следующего задания и только вручную - после пропадания питания восстанавливается последнее состояние канала;
   - по заданиям - после пропадания питания устанавливается состояние, в котором канал должен находиться согласно настройкам заданий для текущего дня недели и времени суток;
 
-Журнал изменений состояния каналов. 
+Ведение журналов событий за указанное количество дней. 
 
 Возможность сохранения / восстановления всех настроек в файлы на ESP8266, загрузка / выгрузка файлов через веб-интерфейс.
 
@@ -87,9 +93,16 @@ With Multicast DNS (mDNS) available as host vt.local.
 
 Индикация дублирующих каналов.
 
-Часовой пояс настраивается в веб-интерфейсе.
+Настройка сервера синхронизации времени, часового пояса и автоперехода на летнее-зимнее время через веб-интерфейс.
+
+Выбор точки доступа WiFi для подключения и режима получения IP адресов (DHCP - фиксированные) через веб-интерфейс.
+
+При загрузке в рабочем режиме, в случае невозможности подключиться к WiFi в течение тридцати секунд, устройство перезагружается в режим точки доступа. 
+В режиме точки доступа, в случае отсутствия подключений к http://192.168.4.1, через 10 минут устройство перезагружается в рабочий режим.
 
 Загрузка прошивки через веб-интерфейс.
+
+Перезагрузка в режим точки доступа (SSID: VT_SETUP , PASS: 319319319 , URL: http://192.168.4.1) через веб-интерфейс.
 
 Перезагрузка через веб-интерфейс.
 
