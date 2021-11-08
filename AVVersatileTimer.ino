@@ -1,7 +1,7 @@
 // Tested on Arduino IDE 1.8.8, 1.8.11, 1.8.16
 // Tested on NodeMCU 1.0 (ESP-12E Module) and on Generic ESP8266 Module
 
-#define DEBUG 1
+//#define DEBUG 1
 
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
