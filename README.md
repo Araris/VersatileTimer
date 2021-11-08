@@ -112,3 +112,9 @@ With Multicast DNS (mDNS) available as host vt.local.
 Перезагрузка через веб-интерфейс.
 
 При наличии Multicast DNS (mDNS) доступен как хост vt.local.
+
+![WEB-InterfaceR01](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR01.jpg?raw=true)
+![WEB-InterfaceR02](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR02.jpg?raw=true)
+![WEB-InterfaceR03](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR03.jpg?raw=true)
+![WEB-InterfaceR04](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR04.jpg?raw=true)
+
