@@ -38,11 +38,11 @@ Shows the current active and next tasks for the channel.
 
 Indication of duplicate and conflicting tasks.
 
-Indication of duplicate channels.
+Indication of duplicate and conflicting channels.
 
 Configuring a time synchronization server, time zone and daylight saving via the web interface.
 
-Selecting a WiFi access point for connection and the mode of obtaining IP addresses (DHCP - fixed) via the web interface.
+Selecting a WiFi access point for connection and the mode of obtaining IP addresses (DHCP/fixed) via the web interface.
 
 When booting in working mode, if it is not possible to connect to WiFi within thirty seconds, the device will reboot into access point mode. In the access point mode, if there are no connections to http://192.168.4.1, after 10 minutes the device will reboot into working mode.
 
@@ -96,11 +96,11 @@ With Multicast DNS (mDNS) available as host vt.local.
 
 Индикация дублирующих и конфликтующих заданий.
 
-Индикация дублирующих каналов.
+Индикация дублирующих и конфликтующих каналов.
 
 Настройка сервера синхронизации времени, часового пояса и автоперехода на летнее-зимнее время через веб-интерфейс.
 
-Выбор точки доступа WiFi для подключения и режима получения IP адресов (DHCP - фиксированные) через веб-интерфейс.
+Выбор точки доступа WiFi для подключения и режима получения IP адресов (DHCP/фиксированные) через веб-интерфейс.
 
 При загрузке в рабочем режиме, в случае невозможности подключиться к WiFi в течение тридцати секунд, устройство перезагружается в режим точки доступа. 
 В режиме точки доступа, в случае отсутствия подключений к http://192.168.4.1, через 10 минут устройство перезагружается в рабочий режим.
