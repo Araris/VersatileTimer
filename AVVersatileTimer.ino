@@ -57,6 +57,12 @@
 #define NTP_DEFAULT_TIME_ZONE                      2
 #define FIRST_RUN_SIGNATURE                      139 // signature to detect first run on the device and prepare EEPROM (max 255)
 #define ACCESS_POINT_SIGNATURE                   138 // signature to set AccessPointMode after start
+#define SECS_PER_MIN                            60UL
+#define SECS_PER_HOUR                         3600UL
+#define SECS_PER_DAY                         86400UL
+#define LEAP_YEAR(Y)                         (((1970+(Y))>0) && !((1970+(Y))%4) && (((1970+(Y))%100) || !((1970+(Y))%400)))
+#define RSSI_THERESHOLD                          -80 // (dB)
+#define ACCESS_POINT_MODE_TIMER_INTERVAL    600000UL // (msec)
 #define GPIO_MAX_NUMBER                           16
 #define CHANNELLIST_MIN_NUMBER                     1
 #define CHANNELLIST_MAX_NUMBER                    12
@@ -87,25 +93,33 @@
 #define ACTION_NOACTION                            0
 #define ACTION_TURN_OFF                           10
 #define ACTION_TURN_ON                            11 
-#define EVENT_START                                0
-#define EVENT_MANUAL_SWITCHING                     1
-#define EVENT_TASK_SWITCHING                       2
-#define LOG_DIR                                   "/log"
+#define LOG_DIR                               "/log"
 #define LOG_VIEWSTEP_DEF                          20
 #define LOG_VIEWSTEP_MIN                           5
 #define LOG_VIEWSTEP_MAX                          50
-#define SECS_PER_MIN                            60UL
-#define SECS_PER_HOUR                         3600UL
-#define SECS_PER_DAY                         86400UL
-#define LEAP_YEAR(Y)                         (((1970+(Y))>0) && !((1970+(Y))%4) && (((1970+(Y))%100) || !((1970+(Y))%400)))
-#define RSSI_THERESHOLD                          -80 // (dB)
-#define ACCESS_POINT_MODE_TIMER_INTERVAL    600000UL // (msec)
+#define EVENT_START_STA                            0
+#define EVENT_TASK_SWITCHING_MANUALLY              1
+#define EVENT_TASK_SWITCHING_BY_TASK               2
+#define EVENT_CHANNEL_MANUALLY                     3
+#define EVENT_CHANNEL_UNTIL_NEXT_TASK              4
+#define EVENT_CHANNEL_BY_TASK                      5
+#define EVENT_DAYLIGHT_SAVING_ON                   6
+#define EVENT_DAYLIGHT_SAVING_OFF                  7
+#define EVENT_RESTART_TO_AP_MODE                   8
 //                    GPIO      0     1    2    3    4    5     6     7     8     9    10    11   12   13   14   15   16
 const String NodeMCUpins[] = {"D3","D10","D4","D9","D2","D1","N/A","N/A","N/A","D11","D12","N/A","D6","D7","D5","D8","D0"};
 const String namesOfDays[] = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Workdays","Weekends","Every day",
                               "Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Рабочие дни","Выходные дни","Каждый день"};
-const String namesOfEvents[] = {"Start","Manual switching&nbsp;","Switching by task",
-                                "Начало работы","Переключение вручную&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;","Переключение по заданию"};
+const String namesOfEventsE[] = {"Start","Manual switching","Switching by task"
+                                ,"manually","until next task","by tasks"
+                                ,"Daylight saving"
+                                ,"Doing restart to access point mode"
+                                };
+const String namesOfEventsR[] = {"Начало работы","Переключение вручную","Переключение по заданию"
+                                ,"вручную","до след. задания","по заданиям"
+                                ,"Летнее время"
+                                ,"Перезагрузка в режим точки доступа"
+                                };
 const uint8_t monthDays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
 //
 ESP8266WebServer server(80);
@@ -116,7 +130,7 @@ NTPClient timeClient(ntpUDP); // By default 'pool.ntp.org' is used with 60 secon
 struct Log_Data
  {
  time_t   utc; 
- uint8_t  event;  // Event number (EVENT_START, EVENT_MANUAL_SWITCHING, EVENT_TASK_SWITCHING), see namesOfEvents
+ uint8_t  event;  // Event number, see #define EVENT_*** and namesOfEventsE
  uint8_t  ch;     // Channel number (CHANNELLIST_MIN_NUMBER...CHANNELLIST_MAX_NUMBER), 0 if none
  uint8_t  task;   // Task number (TASKLIST_MIN_NUMBER...TASKLIST_MAX_NUMBER), 0 if none
  uint8_t  act;    // Action (0 / 1)
@@ -196,6 +210,17 @@ unsigned long setClockcurrentMillis, setClockpreviousMillis, setClockelapsedMill
                                
 /////////////////////////////////////////////////////////
 
+uint8_t calcOldChMode(int chNum)
+{
+     if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY )
+ { return EVENT_CHANNEL_MANUALLY; }
+else if ( ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250 )
+ { return EVENT_CHANNEL_UNTIL_NEXT_TASK; }
+else if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK )
+ { return EVENT_CHANNEL_BY_TASK; }
+return 0;
+}
+
 boolean ipEmpty(IPAddress ip)
 {
 uint8_t cnt0 = 0;
@@ -271,7 +296,18 @@ if ( (!timeSyncOK) && timeSyncInitially )
 else
  {
  if ( curIsDaylightSave != previousIsDaylightSave )
-  { if ( curIsDaylightSave ) { curEpochTime += 3600; } else { curEpochTime -= 3600; } }
+  { 
+  if ( curIsDaylightSave ) 
+   {
+   curEpochTime += 3600;
+   log_Append(EVENT_DAYLIGHT_SAVING_ON, 0, 0, 1);
+   }
+  else
+   {
+   curEpochTime -= 3600;
+   log_Append(EVENT_DAYLIGHT_SAVING_OFF, 0, 0, 0);
+   } 
+  }
  }
 previousIsDaylightSave = curIsDaylightSave; 
 } 
@@ -677,7 +713,7 @@ content += (Language ? F("<th>Дата и время</th>") : F("<th>Date&time</
 content += (Language ? F("<th>Событие</th>") : F("<th>Event</th>"));
 content += (Language ? F("<th>Задание</th>") : F("<th>Task</th>"));
 content += (Language ? F("<th>&emsp;Канал</th>") : F("<th>&emsp;Channel</th>"));
-content += (Language ? F("<th>&emsp;Состояние</th>") : F("<th>&emsp;State</th>"));
+content += (Language ? F("<th>&emsp;Новое состояние</th>") : F("<th>&emsp;New state</th>"));
 content += F("</tr>");
 int counter = 0;
 int ls = log_StartRecord;
@@ -700,16 +736,41 @@ if ( LittleFS.exists(path) )
             + (ptm->tm_hour < 10 ? F("0") : F("")) + String(ptm->tm_hour) + F(":") 
             + (ptm->tm_min  < 10 ? F("0") : F("")) + String(ptm->tm_min) + F(":") 
             + (ptm->tm_sec  < 10 ? F("0") : F("")) + String(ptm->tm_sec) + F("</td><td>&emsp;");
-   content += namesOfEvents[rl.event + (Language ? 3 : 0)];
-   content += F("</td><td align='right'>");
-   if ( rl.event > 0 )
+   if ( rl.event == EVENT_START_STA )
     {
-    content += (rl.event == 2 ? String(rl.task + 1) : F("&nbsp;"));
+    content += (Language ? namesOfEventsR[rl.event] : namesOfEventsE[rl.event]);
+    }
+   else if ( rl.event == EVENT_TASK_SWITCHING_MANUALLY || rl.event == EVENT_TASK_SWITCHING_BY_TASK ) 
+    {
+    content += (Language ? namesOfEventsR[rl.event] : namesOfEventsE[rl.event]);
+    content += F("</td><td align='right'>");
+    content += (rl.event == EVENT_TASK_SWITCHING_BY_TASK ? String(rl.task + 1) : F("&nbsp;"));
     content += F("</td><td align='right'>");
     content += String(rl.ch + 1);
     content += F("</td><td align='left'>&emsp;");
     if ( rl.act ) { content += (Language ? F("ВКЛ")  : F("ON")); } 
              else { content += (Language ? F("ВЫКЛ") : F("OFF")); }
+    }
+   else if ( rl.event == EVENT_CHANNEL_MANUALLY || rl.event == EVENT_CHANNEL_UNTIL_NEXT_TASK || rl.event == EVENT_CHANNEL_BY_TASK ) 
+    {
+    content += (Language ? F("Режим канала изменён с '") : F("Channel mode changed from '"));
+    content += (Language ? namesOfEventsR[rl.event] : namesOfEventsE[rl.event]);
+    content += F("'</td><td>&nbsp;</td><td align='right'>");
+    content += String(rl.ch + 1);
+    content += F("</td><td align='left'>&emsp;'");
+    content += (Language ? namesOfEventsR[rl.act] : namesOfEventsE[rl.act]);
+    content += F("'");
+    }
+   else if ( rl.event == EVENT_DAYLIGHT_SAVING_ON || rl.event == EVENT_DAYLIGHT_SAVING_OFF ) 
+    {
+    content += (Language ? namesOfEventsR[rl.event] : namesOfEventsE[rl.event]);
+    content += F("'</td><td>&nbsp;</td>&nbsp;<td></td><td align='left'>&emsp;'");
+    if ( rl.act ) { content += (Language ? F("ВКЛ")  : F("ON")); } 
+             else { content += (Language ? F("ВЫКЛ") : F("OFF")); }
+    }
+   else if ( rl.event == EVENT_RESTART_TO_AP_MODE )
+    {
+    content += (Language ? namesOfEventsR[rl.event] : namesOfEventsE[rl.event]);
     }
    content += F("</td></tr>");
    ls--;
@@ -1181,7 +1242,7 @@ for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
   {
   onoff = "on";  
   if ( NumEnabledTasks[chNum] > 0 )
-   { content += ( Language ? F("red'><b>ВЫКЛЮЧЕН </font></b></td><td>(заданием)") : F("red'><b>OFF </font></b></td><td>(by task)") ); }
+   { content += ( Language ? F("red'><b>ВЫКЛЮЧЕН </font></b></td><td>(по заданиям)") : F("red'><b>OFF </font></b></td><td>(by tasks)") ); }
   else 
    { content += ( Language ? F("red'><b>ВЫКЛЮЧЕН </font></b></td><td>(вручную)") : F("red'><b>OFF </font></b></td><td>(manually)") ); }
   }
@@ -1189,7 +1250,7 @@ for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
   {
   onoff = "off";  
   if ( NumEnabledTasks[chNum] > 0 )
-   { content += ( Language ? F("green'><b>ВКЛЮЧЕН </font></b></td><td>(заданием)") : F("green'><b>ON </font></b></td><td>(by task)") ); }
+   { content += ( Language ? F("green'><b>ВКЛЮЧЕН </font></b></td><td>(по заданиям)") : F("green'><b>ON </font></b></td><td>(by tasks)") ); }
   else 
    { content += ( Language ? F("green'><b>ВКЛЮЧЕН </font></b></td><td>(вручную)") : F("green><b>ON </font></b></td><td>(manually)") ); }
   }
@@ -1689,13 +1750,13 @@ for ( chNum = 0; chNum < numberOfChannels; chNum++ )
   if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK && TaskList[foundTask][TASK_ACTION] == ACTION_TURN_ON ) 
    {      
    ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_ON_BY_TASK;
-   log_Append(EVENT_TASK_SWITCHING, (uint8_t)chNum, foundTask, (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
+   log_Append(EVENT_TASK_SWITCHING_BY_TASK, (uint8_t)chNum, foundTask, (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
    needSave = true;
    }
   else if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK && TaskList[foundTask][TASK_ACTION] == ACTION_TURN_OFF )    
    {   
    ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_BY_TASK;
-   log_Append(EVENT_TASK_SWITCHING, (uint8_t)chNum, foundTask, (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
+   log_Append(EVENT_TASK_SWITCHING_BY_TASK, (uint8_t)chNum, foundTask, (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
    needSave = true;
    }
   else if ( (ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150
@@ -1704,9 +1765,10 @@ for ( chNum = 0; chNum < numberOfChannels; chNum++ )
            && ActiveNowTasksList[chNum] != ChannelList[chNum][CHANNEL_LASTSTATE] - 150)
           ) 
    {
+   if ( calcOldChMode(chNum) != EVENT_CHANNEL_BY_TASK ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_BY_TASK); }
         if ( TaskList[foundTask][TASK_ACTION] == ACTION_TURN_ON )  { ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_ON_BY_TASK; }
    else if ( TaskList[foundTask][TASK_ACTION] == ACTION_TURN_OFF ) { ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_BY_TASK; }
-   log_Append(EVENT_TASK_SWITCHING, (uint8_t)chNum, foundTask, (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
+   log_Append(EVENT_TASK_SWITCHING_BY_TASK, (uint8_t)chNum, foundTask, (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
    needSave = true;
    }
   } 
@@ -1950,8 +2012,9 @@ server.on("/setchannelstateon", []()
  String buf = server.argName(0);
  buf = buf.substring(1);
  chNum = buf.toInt();
+ if ( calcOldChMode(chNum) != EVENT_CHANNEL_MANUALLY ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_MANUALLY); }
  ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_ON_MANUALLY;
- log_Append(EVENT_MANUAL_SWITCHING, chNum, 0, 1);
+ log_Append(EVENT_TASK_SWITCHING_MANUALLY, chNum, 0, 1);
  save_channellist_to_EEPROM(); 
  read_channellist_from_EEPROM_and_switch_channels();
  ServerSendMessageAndRefresh();
@@ -1963,8 +2026,9 @@ server.on("/setchannelstateoff", []()
  String buf = server.argName(0);
  buf = buf.substring(1);
  chNum = buf.toInt();
+ if ( calcOldChMode(chNum) != EVENT_CHANNEL_MANUALLY ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_MANUALLY); }
  ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_MANUALLY;
- log_Append(EVENT_MANUAL_SWITCHING, chNum, 0, 0);
+ log_Append(EVENT_TASK_SWITCHING_MANUALLY, chNum, 0, 0);
  save_channellist_to_EEPROM(); 
  read_channellist_from_EEPROM_and_switch_channels();
  ServerSendMessageAndRefresh();
@@ -1978,8 +2042,9 @@ server.on("/setchannelstateonuntil", []()
  chNum = buf.toInt();
  if ( ActiveNowTasksList[chNum] <= numberOfTasks )
   {
+  if ( calcOldChMode(chNum) != EVENT_CHANNEL_UNTIL_NEXT_TASK ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_UNTIL_NEXT_TASK); }
   ChannelList[chNum][CHANNEL_LASTSTATE] = ActiveNowTasksList[chNum] + 150;
-  log_Append(EVENT_MANUAL_SWITCHING, chNum, 0, 1);
+  log_Append(EVENT_TASK_SWITCHING_MANUALLY, chNum, 0, 1);
   save_channellist_to_EEPROM(); 
   read_channellist_from_EEPROM_and_switch_channels();
   }
@@ -1994,8 +2059,9 @@ server.on("/setchannelstateoffuntil", []()
  chNum = buf.toInt();
  if ( ActiveNowTasksList[chNum] <= numberOfTasks )
   {
+  if ( calcOldChMode(chNum) != EVENT_CHANNEL_UNTIL_NEXT_TASK ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_UNTIL_NEXT_TASK); }
   ChannelList[chNum][CHANNEL_LASTSTATE] = ActiveNowTasksList[chNum] + 50;
-  log_Append(EVENT_MANUAL_SWITCHING, chNum, 0, 0);
+  log_Append(EVENT_TASK_SWITCHING_MANUALLY, chNum, 0, 0);
   save_channellist_to_EEPROM(); 
   read_channellist_from_EEPROM_and_switch_channels();
   }
@@ -2008,6 +2074,7 @@ server.on("/setchannelmanually", []()
  String buf = server.argName(0);
  buf = buf.substring(1);
  chNum = buf.toInt();
+ if ( calcOldChMode(chNum) != EVENT_CHANNEL_MANUALLY ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_MANUALLY); }
       if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK
        || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150) )
        {
@@ -2031,6 +2098,7 @@ server.on("/setchanneluntil", []()
  String buf = server.argName(0);
  buf = buf.substring(1);
  chNum = buf.toInt();
+ if ( calcOldChMode(chNum) != EVENT_CHANNEL_UNTIL_NEXT_TASK ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_UNTIL_NEXT_TASK); }
  if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY )
   { 
   if ( ActiveNowTasksList[chNum] <= numberOfTasks )
@@ -2058,6 +2126,7 @@ server.on("/setchannelbytasks", []()
  String buf = server.argName(0);
  buf = buf.substring(1);
  chNum = buf.toInt();
+ if ( calcOldChMode(chNum) != EVENT_CHANNEL_BY_TASK ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_BY_TASK); }
       if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY
        || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150) )
        {
@@ -2405,6 +2474,7 @@ server.on("/restartapmode", []()
  mess += F("<br> URL = http://192.168.4.1 <br><br>");
  EEPROM.write(ACCESS_POINT_SIGNATURE_EEPROM_ADDRESS, ACCESS_POINT_SIGNATURE); 
  EEPROM.commit();
+ log_Append(EVENT_RESTART_TO_AP_MODE,0,0,0);
  ServerSendMessageAndRefresh( 10, "/", mess );
  delay(8000); 
  ServerSendMessageAndReboot();
@@ -2672,7 +2742,7 @@ if ( timeSyncOK )
    if ( littleFS_OK ) 
     {
     log_process();
-    log_Append(EVENT_START,0,0,0);
+    log_Append(EVENT_START_STA,0,0,0);
     }
    everyMinuteTimer = millis();
    }
