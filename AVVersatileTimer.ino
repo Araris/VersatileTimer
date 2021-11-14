@@ -20,6 +20,7 @@
 //
 #include "Secrets.h"
 //
+#define VERSION                           "21.11.14"
 #define NTP_SERVER_NAME        "europe.pool.ntp.org" // default value for String ntpServerName
 #define MDNSHOST                                "VT" // mDNS host (+ ".local")
 #define APMODE_SSID                       "VT_SETUP" // SSID in AP mode
@@ -43,8 +44,11 @@
 #define LOGIN_NAME_EEPROM_ADDRESS                 16 // 16..26 - String loginName (max 10 chars)
 #define LOGIN_PASS_EEPROM_ADDRESS                 27 // 27..39 - String loginPass (max 12 chars)
 #define CHANNELLIST_EEPROM_ADDRESS                40 // 40..88 - byte ChannelList from CHANNELLIST_EEPROM_ADDRESS to CHANNELLIST_EEPROM_ADDRESS + CHANNELLIST_MAX_NUMBER * CHANNEL_NUM_ELEMENTS
-                                              //  89..99 // not used
-#define TASKLIST_EEPROM_ADDRESS                  100 // 100..700 - byte TaskList from TASKLIST_EEPROM_ADDRESS to TASKLIST_EEPROM_ADDRESS + numberOfTasks * TASK_NUM_ELEMENTS
+#define BUILD_HOUR_EEPROM_ADDRESS                 90 // byte FIRMWARE_BUILD_HOUR
+#define BUILD_MIN_EEPROM_ADDRESS                  91 // byte FIRMWARE_BUILD_MIN
+#define BUILD_SEC_EEPROM_ADDRESS                  92 // byte FIRMWARE_BUILD_SEC
+                                          //  93..99 // not used
+#define TASKLIST_EEPROM_ADDRESS                  100 // 100..700 - byte TaskList from TASKLIST_EEPROM_ADDRESS to TASKLIST_EEPROM_ADDRESS + numberOfTasks * (TASK_NUM_ELEMENTS - 1)
 #define AP_SSID_EEPROM_ADDRESS                   701 // 701..764 - String AP_name (max 63 chars)
 #define AP_PASS_EEPROM_ADDRESS                   765 // 765..797 - String AP_pass (max 32 chars)
 #define NTP_TIME_SERVER_EEPROM_ADDRESS           798 // 798..830 - String ntpServerName (max 32 chars)
@@ -57,6 +61,15 @@
 #define NTP_DEFAULT_TIME_ZONE                      2
 #define FIRST_RUN_SIGNATURE                      139 // signature to detect first run on the device and prepare EEPROM (max 255)
 #define ACCESS_POINT_SIGNATURE                   138 // signature to set AccessPointMode after start
+#define BUILD_HOUR_CH0 (__TIME__[0] - '0')
+#define BUILD_HOUR_CH1 (__TIME__[1] - '0')
+#define BUILD_MIN_CH0  (__TIME__[3] - '0')
+#define BUILD_MIN_CH1  (__TIME__[4] - '0')
+#define BUILD_SEC_CH0  (__TIME__[6] - '0')
+#define BUILD_SEC_CH1  (__TIME__[7] - '0')
+#define FIRMWARE_BUILD_HOUR (BUILD_HOUR_CH0 * 10 + BUILD_HOUR_CH1)
+#define FIRMWARE_BUILD_MIN  (BUILD_MIN_CH0 * 10 + BUILD_MIN_CH1)
+#define FIRMWARE_BUILD_SEC  (BUILD_SEC_CH0 * 10 + BUILD_SEC_CH1)
 #define SECS_PER_MIN                            60UL
 #define SECS_PER_HOUR                         3600UL
 #define SECS_PER_DAY                         86400UL
@@ -80,13 +93,14 @@
 #define LASTSTATE_ON_MANUALLY                      3
 #define TASKLIST_MIN_NUMBER                        1
 #define TASKLIST_MAX_NUMBER                      100
-#define TASK_NUM_ELEMENTS                          6
+#define TASK_NUM_ELEMENTS                          7
 #define TASK_ACTION                                0
 #define TASK_HOUR                                  1
 #define TASK_MIN                                   2
 #define TASK_SEC                                   3
 #define TASK_DAY                                   4
 #define TASK_CHANNEL                               5
+#define TASK_NUMBER                                6 // Not written to EEPROM !
 #define TASK_DAY_WORKDAYS                          7
 #define TASK_DAY_WEEKENDS                          8
 #define TASK_DAY_EVERYDAY                          9
@@ -97,29 +111,88 @@
 #define LOG_VIEWSTEP_DEF                          20
 #define LOG_VIEWSTEP_MIN                           5
 #define LOG_VIEWSTEP_MAX                          50
-#define EVENT_START_STA                            0
-#define EVENT_TASK_SWITCHING_MANUALLY              1
-#define EVENT_TASK_SWITCHING_BY_TASK               2
-#define EVENT_CHANNEL_MANUALLY                     3
-#define EVENT_CHANNEL_UNTIL_NEXT_TASK              4
-#define EVENT_CHANNEL_BY_TASK                      5
-#define EVENT_DAYLIGHT_SAVING_ON                   6
-#define EVENT_DAYLIGHT_SAVING_OFF                  7
-#define EVENT_RESTART_TO_AP_MODE                   8
+#define LOG_EVENT_START_STA                        0
+#define LOG_EVENT_TASK_SWITCHING_MANUALLY          1
+#define LOG_EVENT_TASK_SWITCHING_BY_TASK           2
+#define LOG_EVENT_CHANNEL_MANUALLY                 3
+#define LOG_EVENT_CHANNEL_UNTIL_NEXT_TASK          4
+#define LOG_EVENT_CHANNEL_BY_TASK                  5
+#define LOG_EVENT_DAYLIGHT_SAVING_ON               6
+#define LOG_EVENT_DAYLIGHT_SAVING_OFF              7
+#define LOG_EVENT_RESTART_TO_AP_MODE               8
+#define LOG_EVENT_TASK_SETTINGS_CHANGED            9
+#define LOG_EVENT_CHANNEL_SETTINGS_CHANGED        10
+#define LOG_EVENT_NUMBER_OF_TASKS_CHANGED         11
+#define LOG_EVENT_NUMBER_OF_CHANNELS_CHANGED      12
+#define LOG_EVENT_INTERFACE_LANGUAGE_CHANGED      13
+#define LOG_EVENT_TIME_ZONE_CHANGED               14
+#define LOG_EVENT_AUTO_DAYLIGHT_SAVING_CHANGED    15
+#define LOG_EVENT_DAYLIGHT_SAVING_ZONE_CHANGED    16
+#define LOG_EVENT_TIME_SERVER_CHANGED             17
+#define LOG_EVENT_LOGIN_NAME_CHANGED              18
+#define LOG_EVENT_LOGIN_PASSWORD_CHANGED          19
+#define LOG_EVENT_WIFI_SETTINGS_CHANGED           20
+#define LOG_EVENT_FILE_SAVE                       21
+#define LOG_EVENT_FILE_RESTORE                    22
+#define LOG_EVENT_FILE_RENAME                     23
+#define LOG_EVENT_FILE_DELETE                     24
+#define LOG_EVENT_FILE_DOWNLOAD                   25
+#define LOG_EVENT_FILE_UPLOAD                     26
+#define LOG_EVENT_FIRMWARE_UPDATED                27
+#define LOG_EVENT_CLEAR_TASKLIST                  28
+#define LOG_EVENT_MANUAL_RESTART                  29
+#define LOG_EVENT_LOG_ENTRIES_PER_PAGE_CHANGED    30
+#define LOG_EVENT_LOG_DAYS_TO_KEEP_CHANGED        31
 //                    GPIO      0     1    2    3    4    5     6     7     8     9    10    11   12   13   14   15   16
 const String NodeMCUpins[] = {"D3","D10","D4","D9","D2","D1","N/A","N/A","N/A","D11","D12","N/A","D6","D7","D5","D8","D0"};
-const String namesOfDays[] = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Workdays","Weekends","Every day",
-                              "Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Рабочие дни","Выходные дни","Каждый день"};
-const String namesOfEventsE[] = {"Start","Manual switching","Switching by task"
-                                ,"manually","until next task","by tasks"
-                                ,"Daylight saving"
-                                ,"Doing restart to access point mode"
-                                };
-const String namesOfEventsR[] = {"Начало работы","Переключение вручную","Переключение по заданию"
-                                ,"вручную","до след. задания","по заданиям"
-                                ,"Летнее время"
-                                ,"Перезагрузка в режим точки доступа"
-                                };
+const String namesOfDays[][10] = {{"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Workdays","Weekends","Every day"},
+                                  {"Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Рабочие дни","Выходные дни","Каждый день"}};
+const String namesOfEvents[][32] = {{"Start","Manual switching","Switching by task"
+                                    ,"manually","until next task","by tasks"
+                                    ,"Daylight saving ON","Daylight saving OFF"
+                                    ,"Doing restart to access point mode"
+                                    ,"Task settings changed","Channel settings changed"
+                                    ,"Number of tasks changed","Number of channels changed"
+                                    ,"Interface language changed"
+                                    ,"Time Zone changed","Auto daylight saving time changed"
+                                    ,"Daylight saving time zone changed","Time synchronization server changed"
+                                    ,"Login name changed","Login password changed"
+                                    ,"Wifi settings changed"
+                                    ,"Settings saved to file"
+                                    ,"Settings restored from file"
+                                    ,"Settings file renamed"
+                                    ,"Settings file deleted"
+                                    ,"Settings file downloaded"
+                                    ,"Settings file uploaded"
+                                    ,"Firmware updated"
+                                    ,"Tasklist cleared"
+                                    ,"Doing manual restart"
+                                    ,"Log entries per page changed"
+                                    ,"Number of days to keep the log changed"
+                                    },
+                                    {"Начало работы","Переключение вручную","Переключение по заданию"
+                                    ,"вручную","до след. задания","по заданиям"
+                                    ,"Летнее время активно","Зимнее время активно"
+                                    ,"Перезагрузка в режим точки доступа"
+                                    ,"Настройки задания изменены","Настройки канала изменены"
+                                    ,"Количество заданий изменено","Количество каналов изменено"
+                                    ,"Язык интерфейса изменен"
+                                    ,"Часовой пояс изменен","Автопереход на летнее-зимнее время изменен"
+                                    ,"Зона перехода на летнее-зимнее время изменена","Сервер синхронизации времени изменен"
+                                    ,"Имя авторизации изменено","Пароль авторизации изменен"
+                                    ,"Настройки Wi-Fi изменены"
+                                    ,"Настройки сохранены в файл"
+                                    ,"Настройки восстановлены из файла"
+                                    ,"Файл настроек переименован"
+                                    ,"Файл настроек удален"
+                                    ,"Файл настроек выгружен"
+                                    ,"Файл настроек загружен"
+                                    ,"Прошивка обновлена"
+                                    ,"Список заданий очищен"
+                                    ,"Ручная перезагрузка"
+                                    ,"Количество записей журнала на странице изменено"
+                                    ,"Количество дней хранения журнала изменено"
+                                    }};
 const uint8_t monthDays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
 //
 ESP8266WebServer server(80);
@@ -130,7 +203,7 @@ NTPClient timeClient(ntpUDP); // By default 'pool.ntp.org' is used with 60 secon
 struct Log_Data
  {
  time_t   utc; 
- uint8_t  event;  // Event number, see #define EVENT_*** and namesOfEventsE
+ uint8_t  event;  // Event number, see #define LOG_EVENT_*** and namesOfEvents
  uint8_t  ch;     // Channel number (CHANNELLIST_MIN_NUMBER...CHANNELLIST_MAX_NUMBER), 0 if none
  uint8_t  task;   // Task number (TASKLIST_MIN_NUMBER...TASKLIST_MAX_NUMBER), 0 if none
  uint8_t  act;    // Action (0 / 1)
@@ -178,6 +251,7 @@ uint8_t** TaskList;
                                 // 3 - 0...59 - second
                                 // 4 - 0...9  - 0 - Sunday, 1...6 - Monday...Saturday, 7 - workdays, 8 - weekends, 9 - every day
                                 // 5 - CHANNELLIST_MIN_NUMBER...CHANNELLIST_MAX_NUMBER - channel
+                                // 6 - TASK_NUMBER !! Not written to EEPROM !!
 byte numberOfChannels; // CHANNELLIST_MIN_NUMBER...CHANNELLIST_MAX_NUMBER
 uint8_t** ChannelList;
 // uint8_t ChannelList[numberOfChannels][CHANNEL_NUM_ELEMENTS]
@@ -210,14 +284,22 @@ unsigned long setClockcurrentMillis, setClockpreviousMillis, setClockelapsedMill
                                
 /////////////////////////////////////////////////////////
 
+void log_Append(uint8_t ev, uint8_t ch = 0, uint8_t ts = 0, uint8_t act = 0 )
+{
+if ( !littleFS_OK ) { return; }
+struct Log_Data data = { curEpochTime, ev, ch, ts, act };
+File f = LittleFS.open(log_curPath, "a");
+if ( f ) { f.write((uint8_t *)&data, sizeof(data)); f.close(); }
+}
+
 uint8_t calcOldChMode(int chNum)
 {
      if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY )
- { return EVENT_CHANNEL_MANUALLY; }
+ { return LOG_EVENT_CHANNEL_MANUALLY; }
 else if ( ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250 )
- { return EVENT_CHANNEL_UNTIL_NEXT_TASK; }
+ { return LOG_EVENT_CHANNEL_UNTIL_NEXT_TASK; }
 else if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK )
- { return EVENT_CHANNEL_BY_TASK; }
+ { return LOG_EVENT_CHANNEL_BY_TASK; }
 return 0;
 }
 
@@ -300,12 +382,12 @@ else
   if ( curIsDaylightSave ) 
    {
    curEpochTime += 3600;
-   log_Append(EVENT_DAYLIGHT_SAVING_ON, 0, 0, 1);
+   log_Append(LOG_EVENT_DAYLIGHT_SAVING_ON);
    }
   else
    {
    curEpochTime -= 3600;
-   log_Append(EVENT_DAYLIGHT_SAVING_OFF, 0, 0, 0);
+   log_Append(LOG_EVENT_DAYLIGHT_SAVING_OFF);
    } 
   }
  }
@@ -507,14 +589,6 @@ ss = filename.substring(6,8); tm.tm_mday = ss.toInt();
 return ( mktime(&tm) - (mktime(&start2000) - 946684800) ) / 86400 * 86400;
 }
 
-void log_Append(uint8_t ev, uint8_t ch, uint8_t ts, uint8_t act)
-{
-if ( !littleFS_OK ) { return; }
-struct Log_Data data = { curEpochTime, ev, ch, ts, act };
-File f = LittleFS.open(log_curPath, "a");
-if ( f ) { f.write((uint8_t *)&data, sizeof(data)); f.close(); }
-}
-
 boolean log_readRow(Log_Data *output, size_t rownumber)
 {
 if ( ((int32_t)(log_FileHandle.size() / sizeof(Log_Data)) - (int32_t)rownumber) <= 0 ) { return false; }
@@ -613,7 +687,7 @@ content += F("</style>");
 content += F("<script>function warn(){if (confirm('");
 content += (Language ? F("Вы уверены ?") : F("Are you sure ?"));
 content += F("'))f.submit();}</script>");
-content += F("<body style='background: #87CEFA'><div class='maindiv'><div class='dac'><span style='font-size:22pt'>");
+content += F("<body style='background: #87CEFA'><div class='maindiv'><div class='dac'><span style='font-size:18pt'>");
 server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 server.sendHeader("Pragma", "no-cache");
 server.sendHeader("Expires", "-1");
@@ -625,10 +699,12 @@ content = "";
 if ( index == 0 )
  {
  struct tm *tinfo = gmtime(&curEpochTime);
- content += (Language ? F("Универсальный программируемый таймер</span><p>Время: <b>") : F("Versatile timer</span><p>Time: <b>"));
+ content += (Language ? F("Универсальный программируемый таймер, версия ") : F("Versatile timer, version "));
+ content += VERSION;
+ content += (Language ? F("</span><p>Время: <b>") : F("</span><p>Time: <b>"));
  content += String(tinfo->tm_hour) + F(":")  + ( tinfo->tm_min < 10 ? "0" : "" ) + String(tinfo->tm_min) + F(":") 
          + ( tinfo->tm_sec < 10 ? "0" : "" ) + String(tinfo->tm_sec) + F("</b>,&nbsp;<b>");
- content += namesOfDays[tinfo->tm_wday + (Language ? 10 : 0)]; // Day of week (0-6; Sunday = 0)
+ content += namesOfDays[Language][tinfo->tm_wday];
  if ( !timeSyncOK )
   {
   content += F("&emsp;<font color='red'>"); 
@@ -647,7 +723,7 @@ if ( index == 0 )
  if ( hours > 0 ) { content += String(hours) + (Language ? F("ч ") : F("h ")); }
  if ( mins > 0 )  { content += String(mins)  + (Language ? F("м ") : F("m ")); }
  content += String(secs) + (Language ? F("с ") : F("s "));
- content += (Language ? F("</b>&emsp;Версия: <b>") : F("</b>&emsp;Version: <b>"));
+ content += (Language ? F("</b>&emsp;Прошивка загружена: <b>") : F("</b>&emsp;Firmware uploaded: <b>"));
  content += String(__DATE__);
  content += (Language ? F("</b>&emsp;Перезагрузок: <b>") : F("</b>&emsp;Reboots: <b>"));
  content += String(counterOfReboots);
@@ -736,41 +812,41 @@ if ( LittleFS.exists(path) )
             + (ptm->tm_hour < 10 ? F("0") : F("")) + String(ptm->tm_hour) + F(":") 
             + (ptm->tm_min  < 10 ? F("0") : F("")) + String(ptm->tm_min) + F(":") 
             + (ptm->tm_sec  < 10 ? F("0") : F("")) + String(ptm->tm_sec) + F("</td><td>&emsp;");
-   if ( rl.event == EVENT_START_STA )
+   if ( rl.event == LOG_EVENT_START_STA || rl.event == LOG_EVENT_RESTART_TO_AP_MODE
+     || rl.event == LOG_EVENT_DAYLIGHT_SAVING_ON || rl.event == LOG_EVENT_DAYLIGHT_SAVING_OFF 
+     || rl.event >= LOG_EVENT_NUMBER_OF_TASKS_CHANGED
+      )
     {
-    content += (Language ? namesOfEventsR[rl.event] : namesOfEventsE[rl.event]);
+    content += namesOfEvents[Language][rl.event];
     }
-   else if ( rl.event == EVENT_TASK_SWITCHING_MANUALLY || rl.event == EVENT_TASK_SWITCHING_BY_TASK ) 
+   else if ( rl.event == LOG_EVENT_TASK_SWITCHING_MANUALLY || rl.event == LOG_EVENT_TASK_SWITCHING_BY_TASK ) 
     {
-    content += (Language ? namesOfEventsR[rl.event] : namesOfEventsE[rl.event]);
+    content += namesOfEvents[Language][rl.event];
     content += F("</td><td align='right'>");
-    content += (rl.event == EVENT_TASK_SWITCHING_BY_TASK ? String(rl.task + 1) : F("&nbsp;"));
+    content += (rl.event == LOG_EVENT_TASK_SWITCHING_BY_TASK ? String(rl.task + 1) : F("&nbsp;"));
     content += F("</td><td align='right'>");
     content += String(rl.ch + 1);
     content += F("</td><td align='left'>&emsp;");
     if ( rl.act ) { content += (Language ? F("ВКЛ")  : F("ON")); } 
              else { content += (Language ? F("ВЫКЛ") : F("OFF")); }
     }
-   else if ( rl.event == EVENT_CHANNEL_MANUALLY || rl.event == EVENT_CHANNEL_UNTIL_NEXT_TASK || rl.event == EVENT_CHANNEL_BY_TASK ) 
+   else if ( rl.event == LOG_EVENT_CHANNEL_MANUALLY || rl.event == LOG_EVENT_CHANNEL_UNTIL_NEXT_TASK || rl.event == LOG_EVENT_CHANNEL_BY_TASK ) 
     {
     content += (Language ? F("Режим канала изменён с '") : F("Channel mode changed from '"));
-    content += (Language ? namesOfEventsR[rl.event] : namesOfEventsE[rl.event]);
+    content += namesOfEvents[Language][rl.event];
     content += F("'</td><td>&nbsp;</td><td align='right'>");
     content += String(rl.ch + 1);
     content += F("</td><td align='left'>&emsp;'");
-    content += (Language ? namesOfEventsR[rl.act] : namesOfEventsE[rl.act]);
+    content += namesOfEvents[Language][rl.act];
     content += F("'");
     }
-   else if ( rl.event == EVENT_DAYLIGHT_SAVING_ON || rl.event == EVENT_DAYLIGHT_SAVING_OFF ) 
+   else if ( rl.event == LOG_EVENT_TASK_SETTINGS_CHANGED || rl.event == LOG_EVENT_CHANNEL_SETTINGS_CHANGED ) 
     {
-    content += (Language ? namesOfEventsR[rl.event] : namesOfEventsE[rl.event]);
-    content += F("'</td><td>&nbsp;</td>&nbsp;<td></td><td align='left'>&emsp;'");
-    if ( rl.act ) { content += (Language ? F("ВКЛ")  : F("ON")); } 
-             else { content += (Language ? F("ВЫКЛ") : F("OFF")); }
-    }
-   else if ( rl.event == EVENT_RESTART_TO_AP_MODE )
-    {
-    content += (Language ? namesOfEventsR[rl.event] : namesOfEventsE[rl.event]);
+    content += namesOfEvents[Language][rl.event];
+    content += F("</td><td align='right'>");
+    content += (rl.event == LOG_EVENT_TASK_SETTINGS_CHANGED ? String(rl.task + 1) : F("&nbsp;"));
+    content += F("</td><td align='right'>");
+    content += (rl.event == LOG_EVENT_CHANNEL_SETTINGS_CHANGED ? String(rl.ch + 1) : F("&nbsp;"));
     }
    content += F("</td></tr>");
    ls--;
@@ -872,9 +948,11 @@ for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
  content += ( ChannelList[chNum][CHANNEL_ENABLED] ? F("<font color='black'>") : F("<font color='dimgrey'>") );
  content += F("<form method='get' form action='/setchannelparams'><p>");
  if ( numberOfChannels > 9 && (chNum + 1) <  10 ) { content += F("&nbsp;&nbsp;"); }
- content += (Language ? F("Канал ") : F("Channel "));
- content += ( ChannelList[chNum][CHANNEL_ENABLED] ? F("<b>") : F("") );
- content += String(chNum + 1) + F(":</b>&nbsp;<select name='e");
+ content += (ChannelList[chNum][CHANNEL_ENABLED] ? F("<b>") : F(""));
+ content += (Language ? F("Канал") : F("Channel"));
+ content += F("&nbsp;");
+ if ( numberOfChannels > 9 && (chNum + 1) <  10 ) { content += F("&nbsp;&nbsp;"); }
+ content += String(chNum + 1) + F("</b>&nbsp;<select name='e");
  if ( chNum < 10 ) { content += F("0"); }
  content += String(chNum) + F("' size='1'><option ");
  if ( ChannelList[chNum][CHANNEL_ENABLED] )
@@ -931,12 +1009,15 @@ for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
   }
  content += ( (TaskList[taskNum][TASK_ACTION] != ACTION_NOACTION) && ChannelList[TaskList[taskNum][TASK_CHANNEL]][CHANNEL_ENABLED]
             ? F("<font color='black'><b>") : F("<font color='dimgrey'>") );
- content += F("<form method='get' form action='/settask'><p>");
- if ( numberOfTasks >  9 && (taskNum + 1) <  10 ) { content += F("&nbsp;&nbsp;"); }
- if ( numberOfTasks > 99 && (taskNum + 1) < 100 ) { content += F("&nbsp;&nbsp;"); }
- content += String(taskNum + 1) + F(":</b>&nbsp;");
+ content += F("<form method='get' form action='/settasksettings'><p>");
+ // Task number 
+ content += (Language ? F("Задание") : F("Task"));
+ content += F("&nbsp;");
+ if ( numberOfTasks >  9 && (TaskList[taskNum][TASK_NUMBER] + 1) <  10 ) { content += F("&nbsp;&nbsp;"); }
+ if ( numberOfTasks > 99 && (TaskList[taskNum][TASK_NUMBER] + 1) < 100 ) { content += F("&nbsp;&nbsp;"); }
+ content += String(TaskList[taskNum][TASK_NUMBER] + 1) + F("</b>&nbsp;");
  // Channel
- content += (Language ? F("Канал") : F("Channel"));
+ content += (Language ? F("канал") : F("channel"));
  content += F("&nbsp;<select name='c");
  if ( taskNum <  10 ) { content += F("0"); }
  if ( taskNum < 100 ) { content += F("0"); }
@@ -949,7 +1030,6 @@ for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
   }
  content += F("</select>&nbsp;");
  // Action
- content += (Language ? F("Действие") : F("Action"));
  content += F("&nbsp;<select name='a' size='1'>");
  if ( TaskList[taskNum][TASK_ACTION] == ACTION_NOACTION ) 
   { content += (Language ? F("<option selected='selected' value='0'>нет действия</option><option value='11'>включить</option><option")
@@ -970,12 +1050,12 @@ for (int taskNum = 0; taskNum < numberOfTasks; taskNum++)
  content += F(":&nbsp;<input name='s' type='number' min='0' max='59' value='");
  content += String(TaskList[taskNum][TASK_SEC]) + F("' />&nbsp;");
  // Day(s)
- content += (Language ? F("День(дни)") : F("Day(s)"));
+ content += (Language ? F("день(дни)") : F("day(s)"));
  content += F("&nbsp;<select name='d' size='1'><option ");
  for (int t = 0; t <= TASK_DAY_EVERYDAY; t++)
   {
   if ( TaskList[taskNum][TASK_DAY] == t ) { content += F("selected='selected' "); } 
-  content += F("value='"); content += String(t) + F("'>") + namesOfDays[t + (Language ? 10 : 0)] + F("</option>");       
+  content += F("value='"); content += String(t) + F("'>") + namesOfDays[Language][t] + F("</option>");       
   if ( t < 9 ) { content += F("<option "); }
   }
  content += F("</select>&nbsp;<input type='submit' value='");
@@ -1520,7 +1600,8 @@ if ( wifiManuallySetAddresses != 0 && wifiManuallySetAddresses != 1 ) { wifiManu
 numberOfTasks = EEPROM.read(NUMBER_OF_TASKS_EEPROM_ADDRESS);
 if ( numberOfTasks < TASKLIST_MIN_NUMBER || numberOfTasks > TASKLIST_MAX_NUMBER ) { numberOfTasks = 5; }
 TaskList = new uint8_t*[numberOfTasks];
-for ( int taskNum = 0; taskNum < numberOfTasks; taskNum++ ) { yield(); TaskList[taskNum] = new uint8_t[TASK_NUM_ELEMENTS]; }
+for ( int taskNum = 0; taskNum < numberOfTasks; taskNum++ ) 
+ { yield(); TaskList[taskNum] = new uint8_t[TASK_NUM_ELEMENTS]; }
 numberOfChannels = EEPROM.read(NUMBER_OF_CHANNELS_EEPROM_ADDRESS);
 if ( numberOfChannels < CHANNELLIST_MIN_NUMBER || numberOfChannels > CHANNELLIST_MAX_NUMBER ) { numberOfChannels = CHANNELLIST_MIN_NUMBER; }
 }
@@ -1545,8 +1626,7 @@ for ( int i = LOGIN_NAME_EEPROM_ADDRESS; i < LOGIN_NAME_EEPROM_ADDRESS + 10; ++i
  { b = EEPROM.read(i); if ( b > 0 && b < 255 ) { loginName += char(b); } }
 for ( int i = LOGIN_PASS_EEPROM_ADDRESS; i < LOGIN_PASS_EEPROM_ADDRESS + 12; ++i) 
  { b = EEPROM.read(i); if ( b > 0 && b < 255 ) { loginPass += char(b); } }
-if ( loginName == "" || loginPass == "" )
- { loginName = "admin"; loginPass = "admin"; }
+if ( loginName == "" || loginPass == "" ) { loginName = "admin"; loginPass = "admin"; }
 httpUpdater.setup(&server, "/firmware", loginName, loginPass);
 }
 
@@ -1596,8 +1676,8 @@ for ( int taskNum = 0; taskNum < numberOfTasks - 1; taskNum++ )
    || (TaskList[taskNum][TASK_DAY] == TASK_DAY_WEEKENDS && weekend_day_of_week(TaskList[findNUM][TASK_DAY]))
    ||  TaskList[taskNum][TASK_DAY] == TASK_DAY_EVERYDAY )
    {
-   found = ( TaskList[taskNum][TASK_ACTION] == TaskList[findNUM][TASK_ACTION] ? taskNum           // duplicate
-                                                                              : taskNum + 1000 ); // conflicting
+   found = ( TaskList[taskNum][TASK_ACTION] == TaskList[findNUM][TASK_ACTION] ? TaskList[taskNum][TASK_NUMBER] // duplicate
+                                                                              : TaskList[taskNum][TASK_NUMBER] + 1000 ); // conflicting
    break; 
    }
   }
@@ -1750,13 +1830,13 @@ for ( chNum = 0; chNum < numberOfChannels; chNum++ )
   if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK && TaskList[foundTask][TASK_ACTION] == ACTION_TURN_ON ) 
    {      
    ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_ON_BY_TASK;
-   log_Append(EVENT_TASK_SWITCHING_BY_TASK, (uint8_t)chNum, foundTask, (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
+   log_Append(LOG_EVENT_TASK_SWITCHING_BY_TASK, (uint8_t)chNum, TaskList[foundTask][TASK_NUMBER], (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
    needSave = true;
    }
   else if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK && TaskList[foundTask][TASK_ACTION] == ACTION_TURN_OFF )    
    {   
    ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_BY_TASK;
-   log_Append(EVENT_TASK_SWITCHING_BY_TASK, (uint8_t)chNum, foundTask, (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
+   log_Append(LOG_EVENT_TASK_SWITCHING_BY_TASK, (uint8_t)chNum, TaskList[foundTask][TASK_NUMBER], (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
    needSave = true;
    }
   else if ( (ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150
@@ -1765,10 +1845,10 @@ for ( chNum = 0; chNum < numberOfChannels; chNum++ )
            && ActiveNowTasksList[chNum] != ChannelList[chNum][CHANNEL_LASTSTATE] - 150)
           ) 
    {
-   if ( calcOldChMode(chNum) != EVENT_CHANNEL_BY_TASK ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_BY_TASK); }
+   if ( calcOldChMode(chNum) != LOG_EVENT_CHANNEL_BY_TASK ) { log_Append(calcOldChMode(chNum), chNum, 0, LOG_EVENT_CHANNEL_BY_TASK); }
         if ( TaskList[foundTask][TASK_ACTION] == ACTION_TURN_ON )  { ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_ON_BY_TASK; }
    else if ( TaskList[foundTask][TASK_ACTION] == ACTION_TURN_OFF ) { ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_BY_TASK; }
-   log_Append(EVENT_TASK_SWITCHING_BY_TASK, (uint8_t)chNum, foundTask, (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
+   log_Append(LOG_EVENT_TASK_SWITCHING_BY_TASK, (uint8_t)chNum, TaskList[foundTask][TASK_NUMBER], (uint8_t)ChannelList[chNum][CHANNEL_LASTSTATE]);
    needSave = true;
    }
   } 
@@ -1790,12 +1870,13 @@ uint8_t IndexArray[numberOfTasks];
 #endif
 for ( taskNum = 0; taskNum < numberOfTasks; taskNum++ )
  {
- taskAddress = TASKLIST_EEPROM_ADDRESS + taskNum * TASK_NUM_ELEMENTS;
+ taskAddress = TASKLIST_EEPROM_ADDRESS + taskNum * (TASK_NUM_ELEMENTS - 1);
  yield(); 
- for ( task_element_num = 0; task_element_num < TASK_NUM_ELEMENTS; task_element_num++ ) 
+ for ( task_element_num = 0; task_element_num < TASK_NUM_ELEMENTS - 1; task_element_num++ ) 
   {
   TaskListRAW[taskNum][task_element_num] = EEPROM.read(taskAddress + task_element_num);
   }
+ TaskListRAW[taskNum][TASK_NUMBER] = taskNum; // Not written to EEPROM !
  if ( TaskListRAW[taskNum][TASK_ACTION] != ACTION_NOACTION && TaskListRAW[taskNum][TASK_ACTION] != ACTION_TURN_OFF
    && TaskListRAW[taskNum][TASK_ACTION] != ACTION_TURN_ON )   { TaskListRAW[taskNum][TASK_ACTION] = ACTION_NOACTION; }
  if ( TaskListRAW[taskNum][TASK_HOUR] > 23 )                  { TaskListRAW[taskNum][TASK_HOUR] = 0; }
@@ -1817,15 +1898,15 @@ for ( taskNum = 0; taskNum < numberOfTasks - 1; taskNum++ )
        + TaskListRAW[IndexArray[bubble_num]][TASK_HOUR] * 3600
        + TaskListRAW[IndexArray[bubble_num]][TASK_MIN] * 60 
        + TaskListRAW[IndexArray[bubble_num]][TASK_SEC])
-    > (( TaskListRAW[IndexArray[bubble_num+1]][TASK_ACTION] != ACTION_NOACTION ? 0 : 1 + 86401 * CHANNELLIST_MAX_NUMBER)
-       + TaskListRAW[IndexArray[bubble_num+1]][TASK_CHANNEL] * 86401
-       + TaskListRAW[IndexArray[bubble_num+1]][TASK_HOUR] * 3600 
-       + TaskListRAW[IndexArray[bubble_num+1]][TASK_MIN] * 60 
-       + TaskListRAW[IndexArray[bubble_num+1]][TASK_SEC]))  
+    > (( TaskListRAW[IndexArray[bubble_num + 1]][TASK_ACTION] != ACTION_NOACTION ? 0 : 1 + 86401 * CHANNELLIST_MAX_NUMBER)
+       + TaskListRAW[IndexArray[bubble_num + 1]][TASK_CHANNEL] * 86401
+       + TaskListRAW[IndexArray[bubble_num + 1]][TASK_HOUR] * 3600 
+       + TaskListRAW[IndexArray[bubble_num + 1]][TASK_MIN] * 60 
+       + TaskListRAW[IndexArray[bubble_num + 1]][TASK_SEC]))  
    { 
-   IndexArray[bubble_num]^= IndexArray[bubble_num + 1];
-   IndexArray[bubble_num+1]^= IndexArray[bubble_num];
-   IndexArray[bubble_num]^= IndexArray[bubble_num + 1];
+   IndexArray[bubble_num] ^= IndexArray[bubble_num + 1];
+   IndexArray[bubble_num + 1] ^= IndexArray[bubble_num];
+   IndexArray[bubble_num] ^= IndexArray[bubble_num + 1];
    }
   }
  }
@@ -1852,7 +1933,7 @@ for ( int taskNum = 0; taskNum < numberOfTasks; taskNum++ )
  }
 }
 
-void save_tasks_to_EEPROM()
+void save_tasklist_to_EEPROM()
 {
 int taskAddress;
 #ifdef DEBUG 
@@ -1860,9 +1941,9 @@ int taskAddress;
 #endif
 for ( int taskNum = 0; taskNum < numberOfTasks; taskNum++ )
  {
- taskAddress = TASKLIST_EEPROM_ADDRESS + taskNum * TASK_NUM_ELEMENTS;
+ taskAddress = TASKLIST_EEPROM_ADDRESS + TaskList[taskNum][TASK_NUMBER] * (TASK_NUM_ELEMENTS - 1);
  yield(); 
- for ( int task_element_num = 0; task_element_num < TASK_NUM_ELEMENTS; task_element_num++ )
+ for ( int task_element_num = 0; task_element_num < TASK_NUM_ELEMENTS - 1; task_element_num++ )
   {
   if ( TaskList[taskNum][task_element_num] != EEPROM.read(taskAddress + task_element_num) )
    { EEPROM.write(taskAddress + task_element_num, TaskList[taskNum][task_element_num]); }
@@ -1889,21 +1970,24 @@ for ( chNum = 0; chNum < numberOfChannels; chNum++ )
   { ChannelList[chNum][CHANNEL_INVERTED] = 0; }
  if ( ChannelList[chNum][CHANNEL_ENABLED] != 0 && ChannelList[chNum][CHANNEL_ENABLED] != 1 ) 
   { ChannelList[chNum][CHANNEL_ENABLED] = 0; }
- pinMode(ChannelList[chNum][CHANNEL_GPIO], OUTPUT);
-      if (  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK 
-        ||  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY 
-        || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150) )
-  { 
-  if ( digitalRead(ChannelList[chNum][CHANNEL_GPIO]) != (ChannelList[chNum][CHANNEL_INVERTED] ? true : false ) )
-   { digitalWrite(ChannelList[chNum][CHANNEL_GPIO], (ChannelList[chNum][CHANNEL_INVERTED] ? true : false )); }
-  }
- else if (  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK 
-        ||  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY 
-        || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250) )
+ if ( ChannelList[chNum][CHANNEL_ENABLED] )
   {
-  if ( digitalRead(ChannelList[chNum][CHANNEL_GPIO]) != (ChannelList[chNum][CHANNEL_INVERTED] ? false : true ) )
-   { digitalWrite(ChannelList[chNum][CHANNEL_GPIO], (ChannelList[chNum][CHANNEL_INVERTED] ? false : true )); }
-  }
+  pinMode(ChannelList[chNum][CHANNEL_GPIO], OUTPUT);
+       if (  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK 
+         ||  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY 
+         || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150) )
+   { 
+   if ( digitalRead(ChannelList[chNum][CHANNEL_GPIO]) != (ChannelList[chNum][CHANNEL_INVERTED] ? true : false ) )
+    { digitalWrite(ChannelList[chNum][CHANNEL_GPIO], (ChannelList[chNum][CHANNEL_INVERTED] ? true : false )); }
+   }
+  else if (  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK 
+         ||  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY 
+         || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250) )
+   {
+   if ( digitalRead(ChannelList[chNum][CHANNEL_GPIO]) != (ChannelList[chNum][CHANNEL_INVERTED] ? false : true ) )
+    { digitalWrite(ChannelList[chNum][CHANNEL_GPIO], (ChannelList[chNum][CHANNEL_INVERTED] ? false : true )); }
+   }
+  } 
  }
 }
 
@@ -1933,13 +2017,13 @@ server.on("/",[]()
  if ( !AccessPointMode ) { drawHeader(0); drawHomePage(); }
                    else  { drawHeader(2); drawWiFiSettings(); AccessPointModeTimer = millis(); }
  });
-server.on("/settask", []() 
+server.on("/settasksettings", []() 
  {
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  int taskNumber, param;   
  String buf;
  bool needSave = false;
- if ( server.args() != TASK_NUM_ELEMENTS ) { return; }
+ if ( server.args() != TASK_NUM_ELEMENTS - 1 ) { return; }
  buf = server.argName(0);
  buf = buf.substring(1);
  taskNumber = buf.toInt(); // task
@@ -1956,7 +2040,13 @@ server.on("/settask", []()
  if ( param >= 0 && param <= 59 ) { if ( TaskList[taskNumber][TASK_SEC] != param ) { TaskList[taskNumber][TASK_SEC] = param; needSave = true; } } 
  buf = server.arg(5); param = buf.toInt(); // day(s)
  if ( param >= 0 && param <= TASK_DAY_EVERYDAY )  { if ( TaskList[taskNumber][TASK_DAY] != param ) { TaskList[taskNumber][TASK_DAY] = param; needSave = true; } }
- if ( needSave ) { save_tasks_to_EEPROM(); check_previous_tasks(); find_next_tasks(); }
+ if ( needSave ) 
+  { 
+  log_Append(LOG_EVENT_TASK_SETTINGS_CHANGED, 0, taskNumber);
+  save_tasklist_to_EEPROM();
+  check_previous_tasks();
+  find_next_tasks(); 
+  }
  ServerSendMessageAndRefresh();
  }); 
 server.on("/cleartasklist", []()
@@ -1972,7 +2062,8 @@ server.on("/cleartasklist", []()
   TaskList[taskNum][TASK_DAY] = TASK_DAY_EVERYDAY;
   TaskList[taskNum][TASK_CHANNEL] = 0;
   }
- save_tasks_to_EEPROM(); 
+ log_Append(LOG_EVENT_CLEAR_TASKLIST); 
+ save_tasklist_to_EEPROM(); 
  ServerSendMessageAndRefresh();
  }); 
 server.on("/setnumberOfTasks", []() 
@@ -1985,6 +2076,7 @@ server.on("/setnumberOfTasks", []()
      {
      numberOfTasks = param; 
      EEPROM.write(NUMBER_OF_TASKS_EEPROM_ADDRESS, numberOfTasks); EEPROM.commit();
+     log_Append(LOG_EVENT_NUMBER_OF_TASKS_CHANGED);
      ServerSendMessageAndReboot();
      }
   } 
@@ -2000,6 +2092,7 @@ server.on("/setnumberOfChannels", []()
      {
      numberOfChannels = param; 
      EEPROM.write(NUMBER_OF_CHANNELS_EEPROM_ADDRESS, numberOfChannels); EEPROM.commit();
+     log_Append(LOG_EVENT_NUMBER_OF_CHANNELS_CHANGED);
      ServerSendMessageAndReboot();
      }
   } 
@@ -2012,9 +2105,9 @@ server.on("/setchannelstateon", []()
  String buf = server.argName(0);
  buf = buf.substring(1);
  chNum = buf.toInt();
- if ( calcOldChMode(chNum) != EVENT_CHANNEL_MANUALLY ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_MANUALLY); }
+ if ( calcOldChMode(chNum) != LOG_EVENT_CHANNEL_MANUALLY ) { log_Append(calcOldChMode(chNum), chNum, 0, LOG_EVENT_CHANNEL_MANUALLY); }
  ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_ON_MANUALLY;
- log_Append(EVENT_TASK_SWITCHING_MANUALLY, chNum, 0, 1);
+ log_Append(LOG_EVENT_TASK_SWITCHING_MANUALLY, chNum, 0, 1);
  save_channellist_to_EEPROM(); 
  read_channellist_from_EEPROM_and_switch_channels();
  ServerSendMessageAndRefresh();
@@ -2026,9 +2119,9 @@ server.on("/setchannelstateoff", []()
  String buf = server.argName(0);
  buf = buf.substring(1);
  chNum = buf.toInt();
- if ( calcOldChMode(chNum) != EVENT_CHANNEL_MANUALLY ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_MANUALLY); }
+ if ( calcOldChMode(chNum) != LOG_EVENT_CHANNEL_MANUALLY ) { log_Append(calcOldChMode(chNum), chNum, 0, LOG_EVENT_CHANNEL_MANUALLY); }
  ChannelList[chNum][CHANNEL_LASTSTATE] = LASTSTATE_OFF_MANUALLY;
- log_Append(EVENT_TASK_SWITCHING_MANUALLY, chNum, 0, 0);
+ log_Append(LOG_EVENT_TASK_SWITCHING_MANUALLY, chNum, 0, 0);
  save_channellist_to_EEPROM(); 
  read_channellist_from_EEPROM_and_switch_channels();
  ServerSendMessageAndRefresh();
@@ -2042,9 +2135,9 @@ server.on("/setchannelstateonuntil", []()
  chNum = buf.toInt();
  if ( ActiveNowTasksList[chNum] <= numberOfTasks )
   {
-  if ( calcOldChMode(chNum) != EVENT_CHANNEL_UNTIL_NEXT_TASK ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_UNTIL_NEXT_TASK); }
+  if ( calcOldChMode(chNum) != LOG_EVENT_CHANNEL_UNTIL_NEXT_TASK ) { log_Append(calcOldChMode(chNum), chNum, 0, LOG_EVENT_CHANNEL_UNTIL_NEXT_TASK); }
   ChannelList[chNum][CHANNEL_LASTSTATE] = ActiveNowTasksList[chNum] + 150;
-  log_Append(EVENT_TASK_SWITCHING_MANUALLY, chNum, 0, 1);
+  log_Append(LOG_EVENT_TASK_SWITCHING_MANUALLY, chNum, 0, 1);
   save_channellist_to_EEPROM(); 
   read_channellist_from_EEPROM_and_switch_channels();
   }
@@ -2059,9 +2152,9 @@ server.on("/setchannelstateoffuntil", []()
  chNum = buf.toInt();
  if ( ActiveNowTasksList[chNum] <= numberOfTasks )
   {
-  if ( calcOldChMode(chNum) != EVENT_CHANNEL_UNTIL_NEXT_TASK ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_UNTIL_NEXT_TASK); }
+  if ( calcOldChMode(chNum) != LOG_EVENT_CHANNEL_UNTIL_NEXT_TASK ) { log_Append(calcOldChMode(chNum), chNum, 0, LOG_EVENT_CHANNEL_UNTIL_NEXT_TASK); }
   ChannelList[chNum][CHANNEL_LASTSTATE] = ActiveNowTasksList[chNum] + 50;
-  log_Append(EVENT_TASK_SWITCHING_MANUALLY, chNum, 0, 0);
+  log_Append(LOG_EVENT_TASK_SWITCHING_MANUALLY, chNum, 0, 0);
   save_channellist_to_EEPROM(); 
   read_channellist_from_EEPROM_and_switch_channels();
   }
@@ -2074,7 +2167,7 @@ server.on("/setchannelmanually", []()
  String buf = server.argName(0);
  buf = buf.substring(1);
  chNum = buf.toInt();
- if ( calcOldChMode(chNum) != EVENT_CHANNEL_MANUALLY ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_MANUALLY); }
+ if ( calcOldChMode(chNum) != LOG_EVENT_CHANNEL_MANUALLY ) { log_Append(calcOldChMode(chNum), chNum, 0, LOG_EVENT_CHANNEL_MANUALLY); }
       if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK
        || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150) )
        {
@@ -2098,7 +2191,7 @@ server.on("/setchanneluntil", []()
  String buf = server.argName(0);
  buf = buf.substring(1);
  chNum = buf.toInt();
- if ( calcOldChMode(chNum) != EVENT_CHANNEL_UNTIL_NEXT_TASK ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_UNTIL_NEXT_TASK); }
+ if ( calcOldChMode(chNum) != LOG_EVENT_CHANNEL_UNTIL_NEXT_TASK ) { log_Append(calcOldChMode(chNum), chNum, 0, LOG_EVENT_CHANNEL_UNTIL_NEXT_TASK); }
  if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK || ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY )
   { 
   if ( ActiveNowTasksList[chNum] <= numberOfTasks )
@@ -2126,7 +2219,7 @@ server.on("/setchannelbytasks", []()
  String buf = server.argName(0);
  buf = buf.substring(1);
  chNum = buf.toInt();
- if ( calcOldChMode(chNum) != EVENT_CHANNEL_BY_TASK ) { log_Append(calcOldChMode(chNum), chNum, 0, EVENT_CHANNEL_BY_TASK); }
+ if ( calcOldChMode(chNum) != LOG_EVENT_CHANNEL_BY_TASK ) { log_Append(calcOldChMode(chNum), chNum, 0, LOG_EVENT_CHANNEL_BY_TASK); }
       if ( ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY
        || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150) )
        {
@@ -2185,6 +2278,7 @@ server.on("/setchannelparams", []()
   } 
  if ( needSave ) 
   {
+  log_Append(LOG_EVENT_CHANNEL_SETTINGS_CHANGED, chNum);
   save_channellist_to_EEPROM(); 
   read_channellist_from_EEPROM_and_switch_channels(); 
   } 
@@ -2201,6 +2295,7 @@ server.on("/setlanguage", []()
      Language = ( param == 10 ? 0 : 1 ); 
      EEPROM.write(LANGUAGE_EEPROM_ADDRESS, Language);
      EEPROM.commit();
+     log_Append(LOG_EVENT_INTERFACE_LANGUAGE_CHANGED);
      }
   }  
  ServerSendMessageAndRefresh();
@@ -2215,6 +2310,7 @@ server.on("/setntpTimeZone", []()
   ntpTimeZone = param; 
   check_DaylightSave();
   EEPROM.write(NTP_TIME_ZONE_EEPROM_ADDRESS, ntpTimeZone + 12); EEPROM.commit();
+  log_Append(LOG_EVENT_TIME_ZONE_CHANGED);
   ServerSendMessageAndReboot();
   }
  ServerSendMessageAndRefresh();
@@ -2230,6 +2326,7 @@ server.on("/setntpdaylightsave", []()
      ntpDaylightSave = ( param == 10 ? 0 : 1 ); 
      EEPROM.write(NTP_DAYLIGHTSAVE_EEPROM_ADDRESS, ntpDaylightSave);
      EEPROM.commit();
+     log_Append(LOG_EVENT_AUTO_DAYLIGHT_SAVING_CHANGED);
      check_DaylightSave();
      }
   }  
@@ -2246,6 +2343,7 @@ server.on("/setntpdaylightsavezone", []()
      ntpDaylightSaveZone = ( param == 10 ? 0 : 1 ); 
      EEPROM.write(NTP_DAYLIGHTSAVEZONE_EEPROM_ADDRESS, ntpDaylightSaveZone);
      EEPROM.commit();
+     log_Append(LOG_EVENT_DAYLIGHT_SAVING_ZONE_CHANGED);
      check_DaylightSave();
      }
   }  
@@ -2260,6 +2358,7 @@ server.on("/setntpservername", []()
   for ( int i = NTP_TIME_SERVER_EEPROM_ADDRESS; i < NTP_TIME_SERVER_EEPROM_ADDRESS + 32; ++i) { EEPROM.write(i, 0); } // fill with 0
   for ( unsigned int i = 0; i < nname.length(); ++i ) { EEPROM.write(i + NTP_TIME_SERVER_EEPROM_ADDRESS, nname[i]); }
   EEPROM.commit();
+  log_Append(LOG_EVENT_TIME_SERVER_CHANGED);
   read_and_set_ntpservername_from_EEPROM();
   ServerSendMessageAndRefresh();
   }
@@ -2278,6 +2377,8 @@ server.on("/setlogin", []()
   for ( unsigned int i = 0; i < qlogin.length(); ++i ) { EEPROM.write(i + LOGIN_NAME_EEPROM_ADDRESS, qlogin[i]); }
   for ( unsigned int i = 0; i < qpass1.length(); ++i ) { EEPROM.write(i + LOGIN_PASS_EEPROM_ADDRESS, qpass1[i]); }
   EEPROM.commit();
+  if ( qlogin != loginName ) { log_Append(LOG_EVENT_LOGIN_NAME_CHANGED); }
+  if ( qpass1 != loginPass ) { log_Append(LOG_EVENT_LOGIN_PASSWORD_CHANGED); }
   read_login_pass_from_EEPROM();
   ServerSendMessageAndRefresh();
   }
@@ -2350,6 +2451,7 @@ server.on("/wifisetting", []()
    #ifdef DEBUG 
     Serial.println(F("Connected to ")); Serial.println(AP_name);
    #endif
+   log_Append(LOG_EVENT_WIFI_SETTINGS_CHANGED);
    }
   else
    {
@@ -2378,7 +2480,11 @@ server.on("/savesettings", []()
    }   
   f.close();
   if ( writeerror ) { ServerSendMessageAndRefresh( 3, "/", (Language ? F("ОШИБКА записи в файл ") : F("ERROR saving to file ")), fileName ); }
-               else { ServerSendMessageAndRefresh( 3, "/", (Language ? F("Сохранено в файл ") : F("Saved to file ")), fileName ); }
+  else 
+   {
+   log_Append(LOG_EVENT_FILE_SAVE);
+   ServerSendMessageAndRefresh( 3, "/", (Language ? F("Сохранено в файл ") : F("Saved to file ")), fileName ); 
+   }
   }
  else { ServerSendMessageAndRefresh( 3, "/", (Language ? F("ОШИБКА !") : F("ERROR !")) ); }
  });  
@@ -2403,6 +2509,7 @@ server.on("/restoresettings", []()
     }   
    f.close();
    EEPROM.commit();
+   log_Append(LOG_EVENT_FILE_RESTORE);
    ServerSendMessageAndReboot();
    }
   else
@@ -2419,7 +2526,10 @@ server.on("/renamefile", []()
  String oldName = server.arg(0);
  String newName = server.arg(1);
  if ( LittleFS.rename(oldName, newName) )
-  { ServerSendMessageAndRefresh( 3, "/", (Language ? F("Переименован файл ") : F("Renamed file ")), oldName, (Language ? F(" в ") : F(" to ")), newName); }
+  {
+  log_Append(LOG_EVENT_FILE_RENAME);
+  ServerSendMessageAndRefresh( 3, "/", (Language ? F("Переименован файл ") : F("Renamed file ")), oldName, (Language ? F(" в ") : F(" to ")), newName); 
+  }
  else 
   { ServerSendMessageAndRefresh( 3, "/", (Language ? F("ОШИБКА !") : F("ERROR !")) ); }
  });  
@@ -2430,6 +2540,7 @@ server.on("/deletefile", []()
  if ( LittleFS.exists(fileName) ) 
   {
   LittleFS.remove(fileName);
+  log_Append(LOG_EVENT_FILE_DELETE);
   ServerSendMessageAndRefresh( 3, "/", (Language ? F("Удален файл ") : F("Deleted file ")), fileName );
   }
  else { ServerSendMessageAndRefresh( 3, "/", (Language ? F("ОШИБКА !") : F("ERROR !")) ); }
@@ -2443,6 +2554,7 @@ server.on("/downloadfile", HTTP_POST, []()
   File downloadHandle = LittleFS.open("/" + fileName, "r");
   if ( downloadHandle )
    {
+   log_Append(LOG_EVENT_FILE_DOWNLOAD); 
    server.sendHeader("Content-Type", "text/text");
    server.sendHeader("Content-Disposition", "attachment; filename=" + fileName);
    server.sendHeader("Connection", "close");
@@ -2462,6 +2574,7 @@ server.on("/reset", []()
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  EEPROM.write(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS, 0); 
  EEPROM.commit();
+ log_Append(LOG_EVENT_FILE_UPLOAD);
  ServerSendMessageAndReboot();
  }); 
 server.on("/restartapmode", []()  
@@ -2474,7 +2587,7 @@ server.on("/restartapmode", []()
  mess += F("<br> URL = http://192.168.4.1 <br><br>");
  EEPROM.write(ACCESS_POINT_SIGNATURE_EEPROM_ADDRESS, ACCESS_POINT_SIGNATURE); 
  EEPROM.commit();
- log_Append(EVENT_RESTART_TO_AP_MODE,0,0,0);
+ log_Append(LOG_EVENT_RESTART_TO_AP_MODE);
  ServerSendMessageAndRefresh( 10, "/", mess );
  delay(8000); 
  ServerSendMessageAndReboot();
@@ -2482,6 +2595,7 @@ server.on("/restartapmode", []()
 server.on("/restart", []()  
  {
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ log_Append(LOG_EVENT_MANUAL_RESTART);
  ServerSendMessageAndReboot();
  }); 
 server.on("/settasklistcollapsed", []()  
@@ -2586,6 +2700,7 @@ server.on("/setlog_DaysToKeep", []()
   {
   log_DaysToKeep = param; 
   EEPROM.write(LOG_DAYSTOKEEP_EEPROM_ADDRESS, log_DaysToKeep); EEPROM.commit();
+  log_Append(LOG_EVENT_LOG_DAYS_TO_KEEP_CHANGED);
   ServerSendMessageAndReboot();
   }
  });
@@ -2598,6 +2713,7 @@ server.on("/setlog_ViewStep", []()
   {
   log_ViewStep = param; 
   EEPROM.write(LOG_VIEWSTEP_EEPROM_ADDRESS, log_ViewStep); EEPROM.commit();
+  log_Append(LOG_EVENT_LOG_ENTRIES_PER_PAGE_CHANGED);
   ServerSendMessageAndRefresh( 0, LOG_DIR );
   }
  });
@@ -2637,6 +2753,9 @@ if ( EEPROM.read(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS) != FIRST_RUN_SIGNATURE )
  EEPROM.write(LOG_VIEWSTEP_EEPROM_ADDRESS, LOG_VIEWSTEP_DEF);
  EEPROM.write(NTP_TIME_ZONE_EEPROM_ADDRESS, NTP_DEFAULT_TIME_ZONE + 12);
  EEPROM.write(NTP_DAYLIGHTSAVE_EEPROM_ADDRESS, 1);
+ EEPROM.write(BUILD_HOUR_EEPROM_ADDRESS, FIRMWARE_BUILD_HOUR);
+ EEPROM.write(BUILD_MIN_EEPROM_ADDRESS, FIRMWARE_BUILD_MIN);
+ EEPROM.write(BUILD_SEC_EEPROM_ADDRESS, FIRMWARE_BUILD_SEC);
  EEPROM.commit();
  #ifdef DEBUG 
   Serial.println(F("Formatting LittleFS"));
@@ -2742,7 +2861,17 @@ if ( timeSyncOK )
    if ( littleFS_OK ) 
     {
     log_process();
-    log_Append(EVENT_START_STA,0,0,0);
+    if ( EEPROM.read(BUILD_HOUR_EEPROM_ADDRESS) != FIRMWARE_BUILD_HOUR
+      || EEPROM.read(BUILD_MIN_EEPROM_ADDRESS)  != FIRMWARE_BUILD_MIN
+      || EEPROM.read(BUILD_SEC_EEPROM_ADDRESS)  != FIRMWARE_BUILD_SEC ) 
+     {
+     EEPROM.write(BUILD_HOUR_EEPROM_ADDRESS, FIRMWARE_BUILD_HOUR);
+     EEPROM.write(BUILD_MIN_EEPROM_ADDRESS, FIRMWARE_BUILD_MIN);
+     EEPROM.write(BUILD_SEC_EEPROM_ADDRESS, FIRMWARE_BUILD_SEC);
+     EEPROM.commit();
+     log_Append(LOG_EVENT_FIRMWARE_UPDATED); 
+     }
+    log_Append(LOG_EVENT_START_STA);
     }
    everyMinuteTimer = millis();
    }
