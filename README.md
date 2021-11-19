@@ -2,7 +2,7 @@
 
 THE SOFTWARE IS PROVIDED "AS IS," WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGE, USE OR OTHER LIABILITY WHETHER IN CONTRACT, TORT OR OTHERWISE, ARISING OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER CONCESSIONS OF THE SOFTWARE.
 
-                                                     (Описание на русском языке - ниже)
+                      (Описание на русском языке - ниже)
 
 Sorry for google-translate...
 
@@ -58,6 +58,9 @@ With Multicast DNS (mDNS) available as host vt.local.
 ![WEB-InterfaceE02](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceE02.jpg?raw=true)
 ![WEB-InterfaceE03](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceE03.jpg?raw=true)
 ![WEB-InterfaceE04](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceE04.jpg?raw=true)
+
+It is recommended to add RC filters to the control GPIOs to prevent unwanted switching at boot ( https://rabbithole.wwwdotorg.org/2017/03/28/esp8266-gpio.html )
+![ESP8266_GPIO_rc](https://github.com/Araris/VersatileTimer/blob/main/ESP8266_GPIO_rc.png?raw=true)
 
 # VersatileTimer
 
@@ -118,3 +121,5 @@ With Multicast DNS (mDNS) available as host vt.local.
 ![WEB-InterfaceR03](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR03.jpg?raw=true)
 ![WEB-InterfaceR04](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR04.jpg?raw=true)
 
+Рекомендуется добавить RC-фильтры на управляющие GPIO для предотвращения нежелательных переключений при запуске ( https://rabbithole.wwwdotorg.org/2017/03/28/esp8266-gpio.html )
+![ESP8266_GPIO_rc](https://github.com/Araris/VersatileTimer/blob/main/ESP8266_GPIO_rc.png?raw=true)
