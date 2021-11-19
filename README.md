@@ -59,6 +59,12 @@ With Multicast DNS (mDNS) available as host vt.local.
 ![WEB-InterfaceE03](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceE03.jpg?raw=true)
 ![WEB-InterfaceE04](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceE04.jpg?raw=true)
 
+Connection diagram for ESP-01 (one channel) :
+![AVVersatileTimer_ESP-01](https://github.com/Araris/VersatileTimer/blob/main/AVVersatileTimer_ESP-01.jpg?raw=true)
+
+Connection diagram for NodeMCU (multiple channels) :
+![AVVersatileTimer_NodeMCU](https://github.com/Araris/VersatileTimer/blob/main/AVVersatileTimer_NodeMCU.jpg?raw=true)
+
 It is recommended to add RC filters to the control GPIOs to prevent unwanted switching at boot ( https://rabbithole.wwwdotorg.org/2017/03/28/esp8266-gpio.html )
 ![ESP8266_GPIO_rc](https://github.com/Araris/VersatileTimer/blob/main/ESP8266_GPIO_rc.png?raw=true)
 
@@ -120,6 +126,12 @@ It is recommended to add RC filters to the control GPIOs to prevent unwanted swi
 ![WEB-InterfaceR02](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR02.jpg?raw=true)
 ![WEB-InterfaceR03](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR03.jpg?raw=true)
 ![WEB-InterfaceR04](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR04.jpg?raw=true)
+
+Схема подключения для ESP-01 (один канал) :
+![AVVersatileTimer_ESP-01](https://github.com/Araris/VersatileTimer/blob/main/AVVersatileTimer_ESP-01.jpg?raw=true)
+
+Схема подключения для NodeMCU (несколько каналов) :
+![AVVersatileTimer_NodeMCU](https://github.com/Araris/VersatileTimer/blob/main/AVVersatileTimer_NodeMCU.jpg?raw=true)
 
 Рекомендуется добавить RC-фильтры на управляющие GPIO для предотвращения нежелательных переключений при запуске ( https://rabbithole.wwwdotorg.org/2017/03/28/esp8266-gpio.html )
 ![ESP8266_GPIO_rc](https://github.com/Araris/VersatileTimer/blob/main/ESP8266_GPIO_rc.png?raw=true)
