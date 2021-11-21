@@ -20,7 +20,7 @@
 //
 #include "Secrets.h"
 //
-#define VERSION                           "21.11.14"
+#define VERSION                           "21.11.21"
 #define NTP_SERVER_NAME        "europe.pool.ntp.org" // default value for String ntpServerName
 #define MDNSHOST                                "VT" // mDNS host (+ ".local")
 #define APMODE_SSID                       "VT_SETUP" // SSID in AP mode
@@ -44,6 +44,7 @@
 #define LOGIN_NAME_EEPROM_ADDRESS                 16 // 16..26 - String loginName (max 10 chars)
 #define LOGIN_PASS_EEPROM_ADDRESS                 27 // 27..39 - String loginPass (max 12 chars)
 #define CHANNELLIST_EEPROM_ADDRESS                40 // 40..88 - byte ChannelList from CHANNELLIST_EEPROM_ADDRESS to CHANNELLIST_EEPROM_ADDRESS + CHANNELLIST_MAX_NUMBER * CHANNEL_NUM_ELEMENTS
+                                          //      89 // not used
 #define BUILD_HOUR_EEPROM_ADDRESS                 90 // byte FIRMWARE_BUILD_HOUR
 #define BUILD_MIN_EEPROM_ADDRESS                  91 // byte FIRMWARE_BUILD_MIN
 #define BUILD_SEC_EEPROM_ADDRESS                  92 // byte FIRMWARE_BUILD_SEC
@@ -158,17 +159,12 @@ const String namesOfEvents[][32] = {{"Start","Manual switching","Switching by ta
                                     ,"Daylight saving time zone changed","Time synchronization server changed"
                                     ,"Login name changed","Login password changed"
                                     ,"Wifi settings changed"
-                                    ,"Settings saved to file"
-                                    ,"Settings restored from file"
-                                    ,"Settings file renamed"
-                                    ,"Settings file deleted"
-                                    ,"Settings file downloaded"
-                                    ,"Settings file uploaded"
+                                    ,"Settings saved to file","Settings restored from file","Settings file renamed"
+                                    ,"Settings file deleted","Settings file downloaded","Settings file uploaded"
                                     ,"Firmware updated"
                                     ,"Tasklist cleared"
                                     ,"Doing manual restart"
-                                    ,"Log entries per page changed"
-                                    ,"Number of days to keep the log changed"
+                                    ,"Log entries per page changed","Number of days to keep the log changed"
                                     },
                                     {"Начало работы","Переключение вручную","Переключение по заданию"
                                     ,"вручную","до след. задания","по заданиям"
@@ -181,17 +177,12 @@ const String namesOfEvents[][32] = {{"Start","Manual switching","Switching by ta
                                     ,"Зона перехода на летнее-зимнее время изменена","Сервер синхронизации времени изменен"
                                     ,"Имя авторизации изменено","Пароль авторизации изменен"
                                     ,"Настройки Wi-Fi изменены"
-                                    ,"Настройки сохранены в файл"
-                                    ,"Настройки восстановлены из файла"
-                                    ,"Файл настроек переименован"
-                                    ,"Файл настроек удален"
-                                    ,"Файл настроек выгружен"
-                                    ,"Файл настроек загружен"
+                                    ,"Настройки сохранены в файл","Настройки восстановлены из файла","Файл настроек переименован"
+                                    ,"Файл настроек удален","Файл настроек выгружен","Файл настроек загружен"
                                     ,"Прошивка обновлена"
                                     ,"Список заданий очищен"
                                     ,"Ручная перезагрузка"
-                                    ,"Количество записей журнала на странице изменено"
-                                    ,"Количество дней хранения журнала изменено"
+                                    ,"Количество записей журнала на странице изменено","Количество дней хранения журнала изменено"
                                     }};
 const uint8_t monthDays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
 //
@@ -286,7 +277,8 @@ unsigned long setClockcurrentMillis, setClockpreviousMillis, setClockelapsedMill
 
 void log_Append(uint8_t ev, uint8_t ch = 0, uint8_t ts = 0, uint8_t act = 0 )
 {
-if ( !littleFS_OK ) { return; }
+if ( (!littleFS_OK) || (!timeSyncInitially) ) { return; }
+log_process();
 struct Log_Data data = { curEpochTime, ev, ch, ts, act };
 File f = LittleFS.open(log_curPath, "a");
 if ( f ) { f.write((uint8_t *)&data, sizeof(data)); f.close(); }
@@ -546,6 +538,7 @@ else if ( upload.status == UPLOAD_FILE_END )
 
 void log_process()
 {
+if ( (!littleFS_OK) || (!timeSyncInitially) ) { return; }
 unsigned long currentMillis = millis();
 if  ( currentMillis - log_lastProcess > 1000UL || log_processAfterStart )
  {
@@ -2853,26 +2846,23 @@ if ( timeSyncOK )
   curEpochTime = timeClient.getEpochTime();  
   if ( !timeSyncInitially ) 
    {
+   timeSyncInitially = true;
+   log_process();
+   if ( EEPROM.read(BUILD_HOUR_EEPROM_ADDRESS) != FIRMWARE_BUILD_HOUR
+     || EEPROM.read(BUILD_MIN_EEPROM_ADDRESS)  != FIRMWARE_BUILD_MIN
+     || EEPROM.read(BUILD_SEC_EEPROM_ADDRESS)  != FIRMWARE_BUILD_SEC ) 
+    {
+    EEPROM.write(BUILD_HOUR_EEPROM_ADDRESS, FIRMWARE_BUILD_HOUR);
+    EEPROM.write(BUILD_MIN_EEPROM_ADDRESS, FIRMWARE_BUILD_MIN);
+    EEPROM.write(BUILD_SEC_EEPROM_ADDRESS, FIRMWARE_BUILD_SEC);
+    EEPROM.commit();
+    log_Append(LOG_EVENT_FIRMWARE_UPDATED); 
+    }
+   log_Append(LOG_EVENT_START_STA);
    check_DaylightSave(); 
    check_previous_tasks(); 
    find_next_tasks();
    timeClient.setUpdateInterval(NTPUPDATEINTERVAL);
-   timeSyncInitially = true;
-   if ( littleFS_OK ) 
-    {
-    log_process();
-    if ( EEPROM.read(BUILD_HOUR_EEPROM_ADDRESS) != FIRMWARE_BUILD_HOUR
-      || EEPROM.read(BUILD_MIN_EEPROM_ADDRESS)  != FIRMWARE_BUILD_MIN
-      || EEPROM.read(BUILD_SEC_EEPROM_ADDRESS)  != FIRMWARE_BUILD_SEC ) 
-     {
-     EEPROM.write(BUILD_HOUR_EEPROM_ADDRESS, FIRMWARE_BUILD_HOUR);
-     EEPROM.write(BUILD_MIN_EEPROM_ADDRESS, FIRMWARE_BUILD_MIN);
-     EEPROM.write(BUILD_SEC_EEPROM_ADDRESS, FIRMWARE_BUILD_SEC);
-     EEPROM.commit();
-     log_Append(LOG_EVENT_FIRMWARE_UPDATED); 
-     }
-    log_Append(LOG_EVENT_START_STA);
-    }
    everyMinuteTimer = millis();
    }
   }
@@ -2892,7 +2882,6 @@ if ( millis() - everySecondTimer > 1000 )
    }
   timeSyncOK = true; 
   } 
- if ( littleFS_OK && timeSyncInitially ) { log_process(); }
  setClockpreviousMillis = setClockcurrentMillis; 
  everySecondTimer = millis(); 
  } 
