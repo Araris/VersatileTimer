@@ -20,7 +20,7 @@
 //
 #include "Secrets.h"
 //
-#define VERSION                           "21.11.21"
+#define VERSION                           "21.11.26"
 #define NTP_SERVER_NAME        "europe.pool.ntp.org" // default value for String ntpServerName
 #define MDNSHOST                                "VT" // mDNS host (+ ".local")
 #define APMODE_SSID                       "VT_SETUP" // SSID in AP mode
@@ -144,11 +144,15 @@
 #define LOG_EVENT_MANUAL_RESTART                  29
 #define LOG_EVENT_LOG_ENTRIES_PER_PAGE_CHANGED    30
 #define LOG_EVENT_LOG_DAYS_TO_KEEP_CHANGED        31
+#define LOG_EVENT_TIME_SYNC_ERROR                 32
+#define LOG_EVENT_TIME_SYNC_SUCCESS               33
+#define LOG_EVENT_WIFI_CONNECTION_ERROR           34
+#define LOG_EVENT_WIFI_CONNECTION_SUCCESS         35
 //                    GPIO      0     1    2    3    4    5     6     7     8     9    10    11   12   13   14   15   16
 const String NodeMCUpins[] = {"D3","D10","D4","D9","D2","D1","N/A","N/A","N/A","D11","D12","N/A","D6","D7","D5","D8","D0"};
 const String namesOfDays[][10] = {{"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Workdays","Weekends","Every day"},
                                   {"Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Рабочие дни","Выходные дни","Каждый день"}};
-const String namesOfEvents[][32] = {{"Start","Manual switching","Switching by task"
+const String namesOfEvents[][36] = {{"Start","Manual switching","Switching by task"
                                     ,"manually","until next task","by tasks"
                                     ,"Daylight saving ON","Daylight saving OFF"
                                     ,"Doing restart to access point mode"
@@ -161,10 +165,12 @@ const String namesOfEvents[][32] = {{"Start","Manual switching","Switching by ta
                                     ,"Wifi settings changed"
                                     ,"Settings saved to file","Settings restored from file","Settings file renamed"
                                     ,"Settings file deleted","Settings file downloaded","Settings file uploaded"
-                                    ,"Firmware updated"
-                                    ,"Tasklist cleared"
-                                    ,"Doing manual restart"
+                                    ,"Firmware updated","Tasklist cleared","Doing manual restart"
                                     ,"Log entries per page changed","Number of days to keep the log changed"
+                                    ,"Time synchronization error"
+                                    ,"Time synchronization successful"
+                                    ,"Wi-Fi connection error"
+                                    ,"Wi-Fi connection successful"
                                     },
                                     {"Начало работы","Переключение вручную","Переключение по заданию"
                                     ,"вручную","до след. задания","по заданиям"
@@ -179,10 +185,12 @@ const String namesOfEvents[][32] = {{"Start","Manual switching","Switching by ta
                                     ,"Настройки Wi-Fi изменены"
                                     ,"Настройки сохранены в файл","Настройки восстановлены из файла","Файл настроек переименован"
                                     ,"Файл настроек удален","Файл настроек выгружен","Файл настроек загружен"
-                                    ,"Прошивка обновлена"
-                                    ,"Список заданий очищен"
-                                    ,"Ручная перезагрузка"
+                                    ,"Прошивка обновлена","Список заданий очищен","Ручная перезагрузка"
                                     ,"Количество записей журнала на странице изменено","Количество дней хранения журнала изменено"
+                                    ,"Ошибка синхронизации времени"
+                                    ,"Синхронизация времени прошла успешно"
+                                    ,"Ошибка подключения к Wi-Fi"
+                                    ,"Подключение к Wi-Fi успешно"
                                     }};
 const uint8_t monthDays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
 //
@@ -264,10 +272,12 @@ boolean TaskListCollapsed = false;
 boolean ChannelListCollapsed = false;
 #define NTPUPDATEINTERVAL 1800000UL
 bool timeSyncOK = false;
+bool previoustimeSyncOK = false;
 bool timeSyncInitially = false;
 #define EPOCHTIMEMAXDIFF 600UL  // seconds
 time_t curEpochTime;
 bool statusWiFi = false;
+bool previousstatusWiFi = false;
 unsigned long everySecondTimer = 0;
 unsigned long everyMinuteTimer = 0;
 unsigned long CheckTaskListTimer = 0;
@@ -2789,6 +2799,7 @@ if ( !AccessPointMode )
 read_manually_set_addresses();
 if ( !AccessPointMode ) { statusWiFi = begin_WiFi_STA(); }
                    else { statusWiFi = begin_WiFi_AP(); }
+previousstatusWiFi = !statusWiFi;                   
 if ( ipEmpty(wifiManuallySetIP) )     { wifiManuallySetIP = WiFi.localIP(); }
 if ( ipEmpty(wifiManuallySetGW) )     { wifiManuallySetGW = WiFi.gatewayIP(); }
 if ( ipEmpty(wifiManuallySetDNS) )    { wifiManuallySetDNS = WiFi.dnsIP(); }
@@ -2831,8 +2842,7 @@ if ( statusWiFi )
  MDNS.update();
  timeSyncOK = timeClient.update(); 
  } 
-else
- { timeSyncOK = false; }
+else { timeSyncOK = false; }
 if ( timeSyncOK )
  {
  unsigned long difference = 0;
@@ -2866,7 +2876,19 @@ if ( timeSyncOK )
    everyMinuteTimer = millis();
    }
   }
- } 
+ }
+if ( statusWiFi != previousstatusWiFi )
+ {
+ if ( statusWiFi ) { log_Append(LOG_EVENT_WIFI_CONNECTION_SUCCESS, 0, 0, 1); }
+              else { log_Append(LOG_EVENT_WIFI_CONNECTION_ERROR); }
+ previousstatusWiFi = statusWiFi; 
+ }
+if ( timeSyncOK != previoustimeSyncOK && timeSyncInitially )
+ {
+ if ( timeSyncOK ) { log_Append(LOG_EVENT_TIME_SYNC_SUCCESS); }
+              else { log_Append(LOG_EVENT_TIME_SYNC_ERROR); }
+ previoustimeSyncOK = timeSyncOK;
+ }
 if ( millis() - everySecondTimer > 1000 )
  {
  setClockcurrentMillis = millis();  
