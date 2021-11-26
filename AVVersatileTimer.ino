@@ -225,6 +225,7 @@ byte log_DaysToKeep;
 byte log_ViewStep;
 int log_NumRecords = 0;
 time_t log_ViewDate;
+String log_CurDate;
 String log_MinDate;
 String log_MaxDate;
 int log_StartRecord;
@@ -736,7 +737,7 @@ else if ( index == 1 )
  {
  Dir dir = LittleFS.openDir(LOG_DIR);
  File f;
- String log_CurDate;
+ log_CurDate = F("00000000"); 
  log_MinDate = F("99999999");
  log_MaxDate = F("00000000");
  while ( dir.next() )
@@ -861,6 +862,7 @@ if ( LittleFS.exists(path) )
   log_FileHandle.close();
   }
  }
+log_CurDate = String(log_Year) + ( log_Month < 10 ? F("0") : F("") ) + String(log_Month) + ( log_Day < 10 ? F("0") : F("") ) + String(log_Day);
 content += F("</tr></table><p>");
 if ( log_NumRecords > 0 )
  {
@@ -887,12 +889,10 @@ if ( log_NumRecords <= log_ViewStep || ls == 0 )
  { content += F("' disabled />"); } else { content += F("' />"); }
 content += F("&emsp;&emsp;<input formaction='/log_decdate' formmethod='get' type='submit' value='");
 content += (Language ? F(" Предыдущий день ") : F(" Previous Day "));
-if ( log_FileSizeForDate(log_ViewDate - SECS_PER_DAY) == 0 )
- { content += F("' disabled />"); } else { content += F("' />"); }
+if ( log_CurDate.compareTo(log_MinDate) <= 0 ) { content += F("' disabled />"); } else { content += F("' />"); }
 content += F("&emsp;<input formaction='/log_incdate' formmethod='get' type='submit' value='");
 content += (Language ? F(" Следующий день ") : F(" Next Day "));
-if ( log_FileSizeForDate(log_ViewDate + SECS_PER_DAY) == 0 )
- { content += F("' disabled />"); } else { content += F("' />"); }
+if ( log_CurDate.compareTo(log_MaxDate) >= 0 ) { content += F("' disabled />"); } else { content += F("' />"); }
 content += F("&emsp;&emsp;<input formaction='/log_return' formmethod='get' type='submit' value='");
 content += (Language ? F("На главную страницу") : F("To Home Page"));
 content += F("' /></form>");
