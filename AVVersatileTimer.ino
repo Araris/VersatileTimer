@@ -1,4 +1,4 @@
-// Tested on Arduino IDE 1.8.8, 1.8.11, 1.8.16
+// Tested on Arduino IDE 1.8.16
 // Tested on NodeMCU 1.0 (ESP-12E Module) and on Generic ESP8266 Module
 
 //#define DEBUG 1
@@ -25,7 +25,7 @@
 #define MDNSHOST                                "VT" // mDNS host (+ ".local")
 #define APMODE_SSID                       "VT_SETUP" // SSID in AP mode
 #define APMODE_PASSWORD                  "319319319" // password in AP mode
-///////////////////////////////////////// EEPROM map
+/////////////////////////////////////////////////////// EEPROM map BEGIN
 #define FIRST_RUN_SIGNATURE_EEPROM_ADDRESS         0 // byte FIRST_RUN_SIGNATURE
 #define ACCESS_POINT_SIGNATURE_EEPROM_ADDRESS      1 // byte ACCESS_POINT_SIGNATURE
                                                //  2 // not used
@@ -45,9 +45,9 @@
 #define LOGIN_PASS_EEPROM_ADDRESS                 27 // 27..39 - String loginPass (max 12 chars)
 #define CHANNELLIST_EEPROM_ADDRESS                40 // 40..88 - byte ChannelList from CHANNELLIST_EEPROM_ADDRESS to CHANNELLIST_EEPROM_ADDRESS + CHANNELLIST_MAX_NUMBER * CHANNEL_NUM_ELEMENTS
                                           //      89 // not used
-#define BUILD_HOUR_EEPROM_ADDRESS                 90 // byte FIRMWARE_BUILD_HOUR
-#define BUILD_MIN_EEPROM_ADDRESS                  91 // byte FIRMWARE_BUILD_MIN
-#define BUILD_SEC_EEPROM_ADDRESS                  92 // byte FIRMWARE_BUILD_SEC
+#define BUILD_HOUR_EEPROM_ADDRESS                 90 // byte FW_H
+#define BUILD_MIN_EEPROM_ADDRESS                  91 // byte FW_M
+#define BUILD_SEC_EEPROM_ADDRESS                  92 // byte FW_S
                                           //  93..99 // not used
 #define TASKLIST_EEPROM_ADDRESS                  100 // 100..700 - byte TaskList from TASKLIST_EEPROM_ADDRESS to TASKLIST_EEPROM_ADDRESS + numberOfTasks * (TASK_NUM_ELEMENTS - 1)
 #define AP_SSID_EEPROM_ADDRESS                   701 // 701..764 - String AP_name (max 63 chars)
@@ -58,19 +58,19 @@
 #define WIFI_MANUALLY_SET_GW_EEPROM_ADDRESS      839 // 839..842 - IPAddress wifiManuallySetGW
 #define WIFI_MANUALLY_SET_SUBNET_EEPROM_ADDRESS  843 // 843..846 - IPAddress wifiManuallySetSUBNET
 #define MAX_EEPROM_ADDRESS                       900 // total amount EEPROM used
-////////////////////////////////// end of EEPROM map
+/////////////////////////////////////////////////////// EEPROM map END
 #define NTP_DEFAULT_TIME_ZONE                      2
 #define FIRST_RUN_SIGNATURE                      139 // signature to detect first run on the device and prepare EEPROM (max 255)
 #define ACCESS_POINT_SIGNATURE                   138 // signature to set AccessPointMode after start
-#define BUILD_HOUR_CH0 (__TIME__[0] - '0')
-#define BUILD_HOUR_CH1 (__TIME__[1] - '0')
-#define BUILD_MIN_CH0  (__TIME__[3] - '0')
-#define BUILD_MIN_CH1  (__TIME__[4] - '0')
-#define BUILD_SEC_CH0  (__TIME__[6] - '0')
-#define BUILD_SEC_CH1  (__TIME__[7] - '0')
-#define FIRMWARE_BUILD_HOUR (BUILD_HOUR_CH0 * 10 + BUILD_HOUR_CH1)
-#define FIRMWARE_BUILD_MIN  (BUILD_MIN_CH0 * 10 + BUILD_MIN_CH1)
-#define FIRMWARE_BUILD_SEC  (BUILD_SEC_CH0 * 10 + BUILD_SEC_CH1)
+#define FW_H_0                   (__TIME__[0] - '0')
+#define FW_H_1                   (__TIME__[1] - '0')
+#define FW_M_0                   (__TIME__[3] - '0')
+#define FW_M_1                   (__TIME__[4] - '0')
+#define FW_S_0                   (__TIME__[6] - '0')
+#define FW_S_1                   (__TIME__[7] - '0')
+#define FW_H                  (FW_H_0 * 10 + FW_H_1)
+#define FW_M                  (FW_M_0 * 10 + FW_M_1)
+#define FW_S                  (FW_S_0 * 10 + FW_S_1)
 #define SECS_PER_MIN                            60UL
 #define SECS_PER_HOUR                         3600UL
 #define SECS_PER_DAY                         86400UL
@@ -169,8 +169,8 @@ const String namesOfEvents[][36] = {{"Start","Manual switching","Switching by ta
                                     ,"Log entries per page changed","Number of days to keep the log changed"
                                     ,"Time synchronization error"
                                     ,"Time synchronization successful"
-                                    ,"Wi-Fi connection error"
-                                    ,"Wi-Fi connection successful"
+                                    ,"Wi-Fi connection lost"
+                                    ,"Connected to Wi-Fi"
                                     },
                                     {"Начало работы","Переключение вручную","Переключение по заданию"
                                     ,"вручную","до след. задания","по заданиям"
@@ -189,8 +189,8 @@ const String namesOfEvents[][36] = {{"Start","Manual switching","Switching by ta
                                     ,"Количество записей журнала на странице изменено","Количество дней хранения журнала изменено"
                                     ,"Ошибка синхронизации времени"
                                     ,"Синхронизация времени прошла успешно"
-                                    ,"Ошибка подключения к Wi-Fi"
-                                    ,"Подключение к Wi-Fi успешно"
+                                    ,"Подключение к Wi-Fi потеряно"
+                                    ,"Подключено к Wi-Fi"
                                     }};
 const uint8_t monthDays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
 //
@@ -2756,9 +2756,9 @@ if ( EEPROM.read(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS) != FIRST_RUN_SIGNATURE )
  EEPROM.write(LOG_VIEWSTEP_EEPROM_ADDRESS, LOG_VIEWSTEP_DEF);
  EEPROM.write(NTP_TIME_ZONE_EEPROM_ADDRESS, NTP_DEFAULT_TIME_ZONE + 12);
  EEPROM.write(NTP_DAYLIGHTSAVE_EEPROM_ADDRESS, 1);
- EEPROM.write(BUILD_HOUR_EEPROM_ADDRESS, FIRMWARE_BUILD_HOUR);
- EEPROM.write(BUILD_MIN_EEPROM_ADDRESS, FIRMWARE_BUILD_MIN);
- EEPROM.write(BUILD_SEC_EEPROM_ADDRESS, FIRMWARE_BUILD_SEC);
+ EEPROM.write(BUILD_HOUR_EEPROM_ADDRESS, FW_H);
+ EEPROM.write(BUILD_MIN_EEPROM_ADDRESS, FW_M);
+ EEPROM.write(BUILD_SEC_EEPROM_ADDRESS, FW_S);
  EEPROM.commit();
  #ifdef DEBUG 
   Serial.println(F("Formatting LittleFS"));
@@ -2858,13 +2858,13 @@ if ( timeSyncOK )
    {
    timeSyncInitially = true;
    log_process();
-   if ( EEPROM.read(BUILD_HOUR_EEPROM_ADDRESS) != FIRMWARE_BUILD_HOUR
-     || EEPROM.read(BUILD_MIN_EEPROM_ADDRESS)  != FIRMWARE_BUILD_MIN
-     || EEPROM.read(BUILD_SEC_EEPROM_ADDRESS)  != FIRMWARE_BUILD_SEC ) 
+   if ( EEPROM.read(BUILD_HOUR_EEPROM_ADDRESS) != FW_H
+     || EEPROM.read(BUILD_MIN_EEPROM_ADDRESS)  != FW_M
+     || EEPROM.read(BUILD_SEC_EEPROM_ADDRESS)  != FW_S ) 
     {
-    EEPROM.write(BUILD_HOUR_EEPROM_ADDRESS, FIRMWARE_BUILD_HOUR);
-    EEPROM.write(BUILD_MIN_EEPROM_ADDRESS, FIRMWARE_BUILD_MIN);
-    EEPROM.write(BUILD_SEC_EEPROM_ADDRESS, FIRMWARE_BUILD_SEC);
+    EEPROM.write(BUILD_HOUR_EEPROM_ADDRESS, FW_H);
+    EEPROM.write(BUILD_MIN_EEPROM_ADDRESS, FW_M);
+    EEPROM.write(BUILD_SEC_EEPROM_ADDRESS, FW_S);
     EEPROM.commit();
     log_Append(LOG_EVENT_FIRMWARE_UPDATED); 
     }
@@ -2879,14 +2879,12 @@ if ( timeSyncOK )
  }
 if ( statusWiFi != previousstatusWiFi )
  {
- if ( statusWiFi ) { log_Append(LOG_EVENT_WIFI_CONNECTION_SUCCESS, 0, 0, 1); }
-              else { log_Append(LOG_EVENT_WIFI_CONNECTION_ERROR); }
+ log_Append(statusWiFi ? LOG_EVENT_WIFI_CONNECTION_SUCCESS : LOG_EVENT_WIFI_CONNECTION_ERROR); 
  previousstatusWiFi = statusWiFi; 
  }
-if ( timeSyncOK != previoustimeSyncOK && timeSyncInitially )
+if ( timeSyncOK != previoustimeSyncOK )
  {
- if ( timeSyncOK ) { log_Append(LOG_EVENT_TIME_SYNC_SUCCESS); }
-              else { log_Append(LOG_EVENT_TIME_SYNC_ERROR); }
+ log_Append(timeSyncOK ? LOG_EVENT_TIME_SYNC_SUCCESS : LOG_EVENT_TIME_SYNC_ERROR); 
  previoustimeSyncOK = timeSyncOK;
  }
 if ( millis() - everySecondTimer > 1000 )
