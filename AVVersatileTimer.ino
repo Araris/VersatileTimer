@@ -20,7 +20,7 @@
 //
 #include "Secrets.h"
 //
-#define VERSION                           "21.11.26"
+#define VERSION                           "21.11.27"
 #define NTP_SERVER_NAME        "europe.pool.ntp.org" // default value for String ntpServerName
 #define MDNSHOST                                "VT" // mDNS host (+ ".local")
 #define APMODE_SSID                       "VT_SETUP" // SSID in AP mode
@@ -789,6 +789,7 @@ yield();
 void drawLOG()
 {
 String content = F("<hr><table><tr>");
+content += F("<th>№</th>");
 content += (Language ? F("<th>Дата и время</th>") : F("<th>Date&time</th>"));
 content += (Language ? F("<th>Событие</th>") : F("<th>Event</th>"));
 content += (Language ? F("<th>Задание</th>") : F("<th>Task</th>"));
@@ -808,7 +809,8 @@ if ( LittleFS.exists(path) )
   {
   while ( log_readRow(&rl, ls - 1) )
    { 
-   content += F("<tr><td>");
+   content += F("<tr><td align='right'>");
+   content += String(ls) + F("</td><td>&emsp;");
    struct tm *ptm = gmtime((time_t *)&rl.utc); 
    content += String(ptm->tm_mday) + F(".") 
             + (ptm->tm_mon + 1 < 10 ? F("0") : F("")) + String(ptm->tm_mon + 1) + F(".") 
@@ -867,9 +869,9 @@ content += F("</tr></table><p>");
 if ( log_NumRecords > 0 )
  {
  content += (Language ? F("Записи с <b>") : F("Records from <b>"));
- content += String(ls + 1);
- content += (Language ? F("</b> по <b>") : F("</b> to <b>"));
  content += String(log_StartRecord);
+ content += (Language ? F("</b> по <b>") : F("</b> to <b>"));
+ content += String(ls + 1);
  content += (Language ? F("</b> из <b>") : F("</b> of <b>"));
  content += String(log_NumRecords);
  }
