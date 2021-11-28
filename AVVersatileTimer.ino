@@ -20,7 +20,7 @@
 //
 #include "Secrets.h"
 //
-#define VERSION                           "21.11.27"
+#define VERSION                           "21.11.28"
 #define NTP_SERVER_NAME        "europe.pool.ntp.org" // default value for String ntpServerName
 #define MDNSHOST                                "VT" // mDNS host (+ ".local")
 #define APMODE_SSID                       "VT_SETUP" // SSID in AP mode
@@ -152,7 +152,7 @@
 const String NodeMCUpins[] = {"D3","D10","D4","D9","D2","D1","N/A","N/A","N/A","D11","D12","N/A","D6","D7","D5","D8","D0"};
 const String namesOfDays[][10] = {{"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Workdays","Weekends","Every day"},
                                   {"Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Рабочие дни","Выходные дни","Каждый день"}};
-const String namesOfEvents[][36] = {{"Start","Manual switching","Switching by task"
+const String namesOfEvents[][36] = {{"<u>Start</u>","Manual <b>switching</b>","<b>Switching</b> by task"
                                     ,"manually","until next task","by tasks"
                                     ,"Daylight saving ON","Daylight saving OFF"
                                     ,"Doing restart to access point mode"
@@ -167,12 +167,12 @@ const String namesOfEvents[][36] = {{"Start","Manual switching","Switching by ta
                                     ,"Settings file deleted","Settings file downloaded","Settings file uploaded"
                                     ,"Firmware updated","Tasklist cleared","Doing manual restart"
                                     ,"Log entries per page changed","Number of days to keep the log changed"
-                                    ,"Time synchronization error"
+                                    ,"Time synchronization <font color='red'>error</font>"
                                     ,"Time synchronization successful"
-                                    ,"Wi-Fi connection lost"
+                                    ,"Wi-Fi connection <font color='red'>lost</font>"
                                     ,"Connected to Wi-Fi"
                                     },
-                                    {"Начало работы","Переключение вручную","Переключение по заданию"
+                                    {"<u>Начало работы</u>","<b>Переключение</b> вручную","<b>Переключение</b> по заданию"
                                     ,"вручную","до след. задания","по заданиям"
                                     ,"Летнее время активно","Зимнее время активно"
                                     ,"Перезагрузка в режим точки доступа"
@@ -187,9 +187,9 @@ const String namesOfEvents[][36] = {{"Start","Manual switching","Switching by ta
                                     ,"Файл настроек удален","Файл настроек выгружен","Файл настроек загружен"
                                     ,"Прошивка обновлена","Список заданий очищен","Ручная перезагрузка"
                                     ,"Количество записей журнала на странице изменено","Количество дней хранения журнала изменено"
-                                    ,"Ошибка синхронизации времени"
+                                    ,"<font color='red'>Ошибка</font> синхронизации времени"
                                     ,"Синхронизация времени прошла успешно"
-                                    ,"Подключение к Wi-Fi потеряно"
+                                    ,"Подключение к Wi-Fi <font color='red'>потеряно</font>"
                                     ,"Подключено к Wi-Fi"
                                     }};
 const uint8_t monthDays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
@@ -809,15 +809,18 @@ if ( LittleFS.exists(path) )
   {
   while ( log_readRow(&rl, ls - 1) )
    { 
-   content += F("<tr><td align='right'>");
+   content += F("<tr><td align='center'>");
    content += String(ls) + F("</td><td>&emsp;");
    struct tm *ptm = gmtime((time_t *)&rl.utc); 
+   content += (rl.event == LOG_EVENT_START_STA ? F("<u>") : F(""));
    content += String(ptm->tm_mday) + F(".") 
             + (ptm->tm_mon + 1 < 10 ? F("0") : F("")) + String(ptm->tm_mon + 1) + F(".") 
             + String(ptm->tm_year + 1900) + F("&emsp;")
             + (ptm->tm_hour < 10 ? F("0") : F("")) + String(ptm->tm_hour) + F(":") 
             + (ptm->tm_min  < 10 ? F("0") : F("")) + String(ptm->tm_min) + F(":") 
-            + (ptm->tm_sec  < 10 ? F("0") : F("")) + String(ptm->tm_sec) + F("</td><td>&emsp;");
+            + (ptm->tm_sec  < 10 ? F("0") : F("")) + String(ptm->tm_sec) 
+            + (rl.event == LOG_EVENT_START_STA ? F("</u>") : F(""))
+            + F("</td><td>&emsp;");
    if ( rl.event == LOG_EVENT_START_STA || rl.event == LOG_EVENT_RESTART_TO_AP_MODE
      || rl.event == LOG_EVENT_DAYLIGHT_SAVING_ON || rl.event == LOG_EVENT_DAYLIGHT_SAVING_OFF 
      || rl.event >= LOG_EVENT_NUMBER_OF_TASKS_CHANGED
