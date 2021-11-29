@@ -273,7 +273,8 @@ boolean TaskListCollapsed = false;
 boolean ChannelListCollapsed = false;
 #define NTPUPDATEINTERVAL 1800000UL
 bool timeSyncOK = false;
-bool previoustimeSyncOK = false;
+bool timeSyncNTPOK = false;
+bool previoustimeSyncNTPOK = false;
 bool timeSyncInitially = false;
 #define EPOCHTIMEMAXDIFF 600UL  // seconds
 time_t curEpochTime;
@@ -709,10 +710,10 @@ if ( index == 0 )
  content += String(tinfo->tm_hour) + F(":")  + ( tinfo->tm_min < 10 ? "0" : "" ) + String(tinfo->tm_min) + F(":") 
          + ( tinfo->tm_sec < 10 ? "0" : "" ) + String(tinfo->tm_sec) + F("</b>,&nbsp;<b>");
  content += namesOfDays[Language][tinfo->tm_wday];
- if ( !timeSyncOK )
+ if ( !timeSyncNTPOK )
   {
   content += F("&emsp;<font color='red'>"); 
-  content += (Language ? F("Ошибка синхронизации времени") : F("Time sync error"));
+  content += (Language ? F("Ошибка NTP синхронизации времени") : F("NTP time sync error"));
   content += F("</font>"); 
   }
  long secs = millis()/1000;
@@ -2845,7 +2846,8 @@ if ( statusWiFi )
  {
  server.handleClient();
  MDNS.update();
- timeSyncOK = timeClient.update(); 
+ timeSyncNTPOK = timeClient.update(); 
+ timeSyncOK = timeSyncNTPOK;
  } 
 else { timeSyncOK = false; }
 if ( timeSyncOK )
@@ -2887,17 +2889,17 @@ if ( statusWiFi != previousstatusWiFi )
  log_Append(statusWiFi ? LOG_EVENT_WIFI_CONNECTION_SUCCESS : LOG_EVENT_WIFI_CONNECTION_ERROR); 
  previousstatusWiFi = statusWiFi; 
  }
-if ( timeSyncOK != previoustimeSyncOK )
+if ( timeSyncNTPOK != previoustimeSyncNTPOK )
  {
  log_Append(timeSyncOK ? LOG_EVENT_TIME_SYNC_SUCCESS : LOG_EVENT_TIME_SYNC_ERROR); 
- previoustimeSyncOK = timeSyncOK;
+ previoustimeSyncNTPOK = timeSyncNTPOK;
  }
 if ( millis() - everySecondTimer > 1000 )
  {
  setClockcurrentMillis = millis();  
  if ( (!timeSyncOK) && timeSyncInitially )
   {
-  // Update the time when there is no network connection 
+  // Update the time when there is no NTP sync 
   if ( setClockcurrentMillis < setClockpreviousMillis ) { setClockcurrentMillis = setClockpreviousMillis; }
   setClockelapsedMillis += (setClockcurrentMillis - setClockpreviousMillis);
   while ( setClockelapsedMillis > 999 )
