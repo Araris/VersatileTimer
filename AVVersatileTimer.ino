@@ -20,7 +20,7 @@
 //
 #include "Secrets.h"
 //
-#define VERSION                           "21.11.28"
+#define VERSION                           "22.04.07"
 #define NTP_SERVER_NAME        "europe.pool.ntp.org" // default value for String ntpServerName
 #define MDNSHOST                                "VT" // mDNS host (+ ".local")
 #define APMODE_SSID                       "VT_SETUP" // SSID in AP mode
@@ -2864,6 +2864,7 @@ if ( timeSyncOK )
   if ( !timeSyncInitially ) 
    {
    timeSyncInitially = true;
+   check_DaylightSave(); 
    log_process();
    if ( EEPROM.read(BUILD_HOUR_EEPROM_ADDRESS) != FW_H
      || EEPROM.read(BUILD_MIN_EEPROM_ADDRESS)  != FW_M
@@ -2876,7 +2877,6 @@ if ( timeSyncOK )
     log_Append(LOG_EVENT_FIRMWARE_UPDATED); 
     }
    log_Append(LOG_EVENT_START_STA);
-   check_DaylightSave(); 
    check_previous_tasks(); 
    find_next_tasks();
    timeClient.setUpdateInterval(NTPUPDATEINTERVAL);
