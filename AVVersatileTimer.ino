@@ -7,11 +7,10 @@
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPUpdateServer.h>
-#include <NTPClient.h>                 // https://github.com/arduino-libraries/NTPClient
 #include <ESP8266mDNS.h>
 #include <EEPROM.h>
-#include <LittleFS.h>                  // https://github.com/esp8266/Arduino/tree/master/libraries/LittleFS
-#include <time.h>
+#include <LittleFS.h>   // https://github.com/esp8266/Arduino/tree/master/libraries/LittleFS
+#include <coredecls.h>  // source of settimeofday_cb();
 //
 // Create a Secrets.h file with Wi-Fi connection settings as follows:
 //
@@ -19,8 +18,8 @@
 //   #define AP_PASS   "yourPASSWORD"
 //
 #include "Secrets.h"
-//
-#define VERSION                           "22.04.07"
+
+#define VERSION                             "22.427"
 #define NTP_SERVER_NAME        "europe.pool.ntp.org" // default value for String ntpServerName
 #define MDNSHOST                                "VT" // mDNS host (+ ".local")
 #define APMODE_SSID                       "VT_SETUP" // SSID in AP mode
@@ -60,6 +59,7 @@
 #define MAX_EEPROM_ADDRESS                       900 // total amount EEPROM used
 /////////////////////////////////////////////////////// EEPROM map END
 #define NTP_DEFAULT_TIME_ZONE                      2
+#define NTPPOLLINGNTERVAL                  3600000UL
 #define FIRST_RUN_SIGNATURE                      139 // signature to detect first run on the device and prepare EEPROM (max 255)
 #define ACCESS_POINT_SIGNATURE                   138 // signature to set AccessPointMode after start
 #define FW_H_0                   (__TIME__[0] - '0')
@@ -112,7 +112,7 @@
 #define LOG_VIEWSTEP_DEF                          20
 #define LOG_VIEWSTEP_MIN                           5
 #define LOG_VIEWSTEP_MAX                          50
-#define LOG_EVENT_START_STA                        0
+#define LOG_EVENT_START                            0
 #define LOG_EVENT_TASK_SWITCHING_MANUALLY          1
 #define LOG_EVENT_TASK_SWITCHING_BY_TASK           2
 #define LOG_EVENT_CHANNEL_MANUALLY                 3
@@ -144,15 +144,25 @@
 #define LOG_EVENT_MANUAL_RESTART                  29
 #define LOG_EVENT_LOG_ENTRIES_PER_PAGE_CHANGED    30
 #define LOG_EVENT_LOG_DAYS_TO_KEEP_CHANGED        31
-#define LOG_EVENT_TIME_SYNC_ERROR                 32
-#define LOG_EVENT_TIME_SYNC_SUCCESS               33
+#define LOG_EVENT_NTP_TIME_SYNC_ERROR             32
+#define LOG_EVENT_NTP_TIME_SYNC_SUCCESS           33
 #define LOG_EVENT_WIFI_CONNECTION_ERROR           34
 #define LOG_EVENT_WIFI_CONNECTION_SUCCESS         35
+#define LOG_EVENT_RESTART_REASON_0                36
+#define LOG_EVENT_RESTART_REASON_1                37
+#define LOG_EVENT_RESTART_REASON_2                38
+#define LOG_EVENT_RESTART_REASON_3                39
+#define LOG_EVENT_RESTART_REASON_4                40
+#define LOG_EVENT_RESTART_REASON_5                41
+#define LOG_EVENT_RESTART_REASON_6                42
+#define LOG_EVENT_RESTART_REASON_UNKNOWN          43
+#define LOG_EVENT_RTCMEM_TIME_SYNC_SUCCESS        44
 //                    GPIO      0     1    2    3    4    5     6     7     8     9    10    11   12   13   14   15   16
 const String NodeMCUpins[] = {"D3","D10","D4","D9","D2","D1","N/A","N/A","N/A","D11","D12","N/A","D6","D7","D5","D8","D0"};
 const String namesOfDays[][10] = {{"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Workdays","Weekends","Every day"},
                                   {"Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Рабочие дни","Выходные дни","Каждый день"}};
-const String namesOfEvents[][36] = {{"<u>Start</u>","Manual <b>switching</b>","<b>Switching</b> by task"
+const String namesOfEvents[][45] = {{"Start"
+                                    ,"Manual <b>switching</b>","<b>Switching</b> by task"
                                     ,"manually","until next task","by tasks"
                                     ,"Daylight saving ON","Daylight saving OFF"
                                     ,"Doing restart to access point mode"
@@ -167,12 +177,22 @@ const String namesOfEvents[][36] = {{"<u>Start</u>","Manual <b>switching</b>","<
                                     ,"Settings file deleted","Settings file downloaded","Settings file uploaded"
                                     ,"Firmware updated","Tasklist cleared","Doing manual restart"
                                     ,"Log entries per page changed","Number of days to keep the log changed"
-                                    ,"Time synchronization <font color='red'>error</font>"
-                                    ,"Time synchronization successful"
+                                    ,"NTP time synchronization <font color='red'>error</font>"
+                                    ,"NTP time synchronization successful"
                                     ,"Wi-Fi connection <font color='red'>lost</font>"
                                     ,"Connected to Wi-Fi"
+                                    ,"Normal startup by power on"
+                                    ,"Restart after hardware watch dog reset"
+                                    ,"Restart after exception reset"
+                                    ,"Restart after software watch dog reset"
+                                    ,"Restart after software restart"
+                                    ,"Wake up from deep-sleep"
+                                    ,"Power on or external system reset"
+                                    ,"Restart (reason unknown)"                                    
+                                    ,"RTCMEM time synchronization successful"
                                     },
-                                    {"<u>Начало работы</u>","<b>Переключение</b> вручную","<b>Переключение</b> по заданию"
+                                    {"Старт"
+                                    ,"<b>Переключение</b> вручную","<b>Переключение</b> по заданию"
                                     ,"вручную","до след. задания","по заданиям"
                                     ,"Летнее время активно","Зимнее время активно"
                                     ,"Перезагрузка в режим точки доступа"
@@ -187,17 +207,24 @@ const String namesOfEvents[][36] = {{"<u>Start</u>","Manual <b>switching</b>","<
                                     ,"Файл настроек удален","Файл настроек выгружен","Файл настроек загружен"
                                     ,"Прошивка обновлена","Список заданий очищен","Ручная перезагрузка"
                                     ,"Количество записей журнала на странице изменено","Количество дней хранения журнала изменено"
-                                    ,"<font color='red'>Ошибка</font> синхронизации времени"
-                                    ,"Синхронизация времени прошла успешно"
+                                    ,"<font color='red'>Ошибка</font> синхронизации времени (NTP)"
+                                    ,"Синхронизация времени (NTP) прошла успешно"
                                     ,"Подключение к Wi-Fi <font color='red'>потеряно</font>"
                                     ,"Подключено к Wi-Fi"
+                                    ,"Начало работы (подача питания)"
+                                    ,"Перезагрузка аппаратным сторожевым таймером"
+                                    ,"Перезагрузка после сброса по исключению"
+                                    ,"Перезагрузка программным сторожевым таймером"
+                                    ,"Программная перезагрузка"
+                                    ,"Пробуждение из режима глубокого сна"
+                                    ,"Включение питания, или внешний сброс системы"
+                                    ,"Перезагрузка (причина неизвестна)"                                    
+                                    ,"Синхронизация времени (RTCMEM) прошла успешно"
                                     }};
 const uint8_t monthDays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
 //
 ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP); // By default 'pool.ntp.org' is used with 60 seconds update interval and no offset
 //
 struct Log_Data
  {
@@ -235,8 +262,6 @@ int log_Year = 0;
 time_t log_today = 0;
 File log_FileHandle;
 File uploadFileHandle;
-unsigned long log_lastProcess = 0;
-bool log_processAfterStart = true;
 char log_curPath[32];
 //
 String loginName; // default "admin"
@@ -266,34 +291,167 @@ int counterOfReboots = 0;
 String ntpServerName = "";
 byte ntpDaylightSaveZone = 0; // 0 - EU, 1 - USA
 boolean ntpDaylightSave = true;
+boolean curIsDaylightSave = true;
 boolean previousIsDaylightSave = false;
 int ntpTimeZone = NTP_DEFAULT_TIME_ZONE;  // -11...12
 boolean Language = false;       // false - English, true - Russian
 boolean TaskListCollapsed = false;
 boolean ChannelListCollapsed = false;
-#define NTPUPDATEINTERVAL 1800000UL
-bool timeSyncOK = false;
-bool timeSyncNTPOK = false;
-bool previoustimeSyncNTPOK = false;
-bool timeSyncInitially = false;
-#define EPOCHTIMEMAXDIFF 600UL  // seconds
-time_t curEpochTime;
+time_t ntpcurEpochTime;
+struct tm *ntpTimeInfo;
+bool ntpTimeIsSynkedFirst = true;
+bool ntpTimeIsSynked = false;
+bool ntpLastPollingSuccess = false;
+unsigned long ntpLastSynkedTimer = 0;
 bool statusWiFi = false;
 bool previousstatusWiFi = false;
-unsigned long everySecondTimer = 0;
 unsigned long everyMinuteTimer = 0;
-unsigned long CheckTaskListTimer = 0;
-unsigned long setClockcurrentMillis, setClockpreviousMillis, setClockelapsedMillis; 
+unsigned long everyHalfSecondTimer = 0;
                                
 /////////////////////////////////////////////////////////
 
+uint32_t sntp_update_delay_MS_rfc_not_less_than_15000() { return NTPPOLLINGNTERVAL; }
+
 void log_Append(uint8_t ev, uint8_t ch = 0, uint8_t ts = 0, uint8_t act = 0 )
 {
-if ( (!littleFS_OK) || (!timeSyncInitially) ) { return; }
+static bool logEventStartAppended = false;
+if ( (!littleFS_OK) || (!ntpTimeIsSynked) ) { return; }
 log_process();
-struct Log_Data data = { curEpochTime, ev, ch, ts, act };
+struct Log_Data logdata;
+if ( !logEventStartAppended ) 
+ { 
+ logdata = { ntpcurEpochTime, LOG_EVENT_START, 0, 0, 0 };
+ File f = LittleFS.open(log_curPath, "a");
+ if ( f ) { f.write((uint8_t *)&logdata, sizeof(logdata)); f.close(); }
+ yield(); delay(1); yield();
+ logEventStartAppended = true; 
+ }
+logdata = { ntpcurEpochTime, ev, ch, ts, act };
 File f = LittleFS.open(log_curPath, "a");
-if ( f ) { f.write((uint8_t *)&data, sizeof(data)); f.close(); }
+if ( f ) { f.write((uint8_t *)&logdata, sizeof(logdata)); f.close(); }
+}
+
+void getLastResetReason()
+{
+rst_info *resetInfo;
+byte reason;
+resetInfo = ESP.getResetInfoPtr();
+reason = (*resetInfo).reason;
+#ifdef DEBUG
+ Serial.print(F("Last reset reason code = "));
+ Serial.println(reason);
+#endif
+     if ( reason == REASON_DEFAULT_RST ) { log_Append(LOG_EVENT_RESTART_REASON_0); } // 0 normal startup by power on
+else if ( reason == REASON_WDT_RST ) { log_Append(LOG_EVENT_RESTART_REASON_1); } // 1 hardware watch dog reset
+else if ( reason == REASON_EXCEPTION_RST ) { log_Append(LOG_EVENT_RESTART_REASON_2); } // 2 exception reset, GPIO status won’t change
+else if ( reason == REASON_SOFT_WDT_RST ) { log_Append(LOG_EVENT_RESTART_REASON_3); } // 3 software watch dog reset, GPIO status won’t change
+else if ( reason == REASON_SOFT_RESTART ) { log_Append(LOG_EVENT_RESTART_REASON_4); } // 4 software restart , system_restart , GPIO status won’t change
+else if ( reason == REASON_DEEP_SLEEP_AWAKE ) { log_Append(LOG_EVENT_RESTART_REASON_5); } // 5 wake up from deep-sleep
+else if ( reason == REASON_EXT_SYS_RST ) { log_Append(LOG_EVENT_RESTART_REASON_6); } // 6 external system reset
+else { log_Append(LOG_EVENT_RESTART_REASON_UNKNOWN); }
+}
+
+uint32_t calculateCRC32(const uint8_t *data, size_t length) 
+{
+uint32_t crc = 0xffffffff;
+while (length--) 
+ {
+ uint8_t c = *data++;
+ for ( uint32_t i = 0x80; i > 0; i >>= 1 )
+  {
+  bool bit = crc & 0x80000000;
+  if ( c & i ) { bit = !bit; }
+  crc <<= 1;
+  if ( bit ) { crc ^= 0x04c11db7; }
+  }
+ }
+return crc;
+}
+
+void RTCMEMread()
+{
+struct { uint32_t RTCMEMcrc32; time_t RTCMEMEpochTime; } RTCMEMData;
+#ifdef DEBUG 
+ Serial.println(F("Read RTCMEM:"));
+#endif
+if ( ESP.rtcUserMemoryRead(0, (uint32_t *)&RTCMEMData, sizeof(RTCMEMData)) ) 
+ {
+ uint32_t crcOfRTCMEMEpochTime = calculateCRC32((uint8_t *)&RTCMEMData.RTCMEMEpochTime, sizeof(RTCMEMData.RTCMEMEpochTime));
+ #ifdef DEBUG 
+  Serial.print(F("CRC of data: "));
+  Serial.println(crcOfRTCMEMEpochTime);
+  Serial.print(F("CRC read from RTC: "));
+  Serial.println(RTCMEMData.RTCMEMcrc32);
+  Serial.print(F("RTCMEMData.RTCMEMEpochTime = "));
+  Serial.println(RTCMEMData.RTCMEMEpochTime);
+ #endif
+ if ( crcOfRTCMEMEpochTime == RTCMEMData.RTCMEMcrc32 )
+  {
+  ntpcurEpochTime = RTCMEMData.RTCMEMEpochTime + (millis() / 1000) + 1;
+  #ifdef DEBUG 
+   Serial.println(F("CRC OK, set datetimefrom RTCMEM"));
+  #endif
+  timeval tv = { ntpcurEpochTime, 0 };
+  settimeofday(&tv, nullptr);
+  ntpTimeIsSynked = true;
+  yield(); delay(1); yield();
+  ntpGetTime();
+  log_Append(LOG_EVENT_RTCMEM_TIME_SYNC_SUCCESS);  
+  } 
+ }
+else 
+ { 
+ #ifdef DEBUG 
+  Serial.println(F("Reading data from RTC memory failed !"));
+ #endif
+ }
+}
+
+void ntpTimeSynked() 
+{  
+bool appLog = false;
+if ( !ntpTimeIsSynked ) { appLog = true; }
+ntpTimeIsSynked = true;  
+ntpLastPollingSuccess = true;
+if ( appLog ) { ntpGetTime(); log_Append(LOG_EVENT_NTP_TIME_SYNC_SUCCESS); }
+ntpLastSynkedTimer = millis();
+#ifdef DEBUG 
+ Serial.println(F("NTP time is synked"));
+#endif
+}
+
+void ntpGetTime() 
+{
+static unsigned long everySecondTimer = 0;  
+if ( !ntpTimeIsSynked ) { return; }
+yield(); delay(1); yield();
+time(&ntpcurEpochTime); // get GMT0 epoch time (this function calls the NTP server every NTPPOLLINGNTERVAL ms)
+yield(); delay(1); yield();
+if ( millis() - everySecondTimer > 1000UL )
+ {
+ struct { uint32_t RTCMEMcrc32; time_t RTCMEMEpochTime; } RTCMEMData;
+ RTCMEMData.RTCMEMEpochTime = ntpcurEpochTime;
+ RTCMEMData.RTCMEMcrc32 = calculateCRC32((uint8_t *)&RTCMEMData.RTCMEMEpochTime, sizeof(RTCMEMData.RTCMEMEpochTime));
+ if ( !ESP.rtcUserMemoryWrite(0, (uint32_t *)&RTCMEMData, sizeof(RTCMEMData)) )
+  { 
+  #ifdef DEBUG 
+   Serial.println(F("Storing data to RTC memory failed !"));
+  #endif
+  }
+ everySecondTimer = millis(); 
+ }
+if ( millis() - ntpLastSynkedTimer > NTPPOLLINGNTERVAL + 60000 )
+ {
+ if ( ntpLastPollingSuccess ) 
+  { 
+  log_Append(LOG_EVENT_NTP_TIME_SYNC_ERROR); 
+  ntpLastPollingSuccess = false;
+  }
+ ntpLastSynkedTimer = millis(); 
+ }
+// convert GMT0 epoch time to local epoch time 
+ntpcurEpochTime = ntpcurEpochTime + (ntpTimeZone * 3600) + (curIsDaylightSave * 3600);
+ntpTimeInfo = gmtime(&ntpcurEpochTime); // converts local epoch time to tm structure
 }
 
 uint8_t calcOldChMode(int chNum)
@@ -347,53 +505,38 @@ EEPROM.commit();
 bool isSummerTimeNow()
 {
 if ( !ntpDaylightSave ) { return false; }
-struct tm *tinfo = gmtime(&curEpochTime);
 if ( ntpDaylightSaveZone == 0 ) // EU
  {
- if ( (tinfo->tm_mon + 1) < 3 || (tinfo->tm_mon + 1) > 10 ) return false; // Jan, Feb, Nov, Dec
- if ( (tinfo->tm_mon + 1) > 3 && (tinfo->tm_mon + 1) < 10 ) return true;  // Apr, May, Jun, Jul, Aug, Sep
- return ( ((tinfo->tm_mon + 1) == 3 && ((tinfo->tm_hour + 24 * tinfo->tm_mday) >= (1 + 24 * (31 - (5 * (1900 + tinfo->tm_year) / 4 + 4) % 7)))) 
-     ||  (((tinfo->tm_mon + 1) == 10 && (tinfo->tm_hour + 24 * tinfo->tm_mday) <  (1 + 24 * (31 - (5 * (1900 + tinfo->tm_year) / 4 + 1) % 7)))) );
+ if ( (ntpTimeInfo->tm_mon + 1) < 3 || (ntpTimeInfo->tm_mon + 1) > 10 ) return false; // Jan, Feb, Nov, Dec
+ if ( (ntpTimeInfo->tm_mon + 1) > 3 && (ntpTimeInfo->tm_mon + 1) < 10 ) return true;  // Apr, May, Jun, Jul, Aug, Sep
+ return ( ((ntpTimeInfo->tm_mon + 1) == 3 && ((ntpTimeInfo->tm_hour + 24 * ntpTimeInfo->tm_mday) >= (1 + 24 * (31 - (5 * (1900 + ntpTimeInfo->tm_year) / 4 + 4) % 7)))) 
+     ||  (((ntpTimeInfo->tm_mon + 1) == 10 && (ntpTimeInfo->tm_hour + 24 * ntpTimeInfo->tm_mday) <  (1 + 24 * (31 - (5 * (1900 + ntpTimeInfo->tm_year) / 4 + 1) % 7)))) );
  }
 if ( ntpDaylightSaveZone == 1 ) // USA
  {
- if ( (tinfo->tm_mon + 1) < 3 || (tinfo->tm_mon + 1) > 11 ) return false;
- if ( (tinfo->tm_mon + 1) > 3 && (tinfo->tm_mon + 1) < 11 ) return true;
- uint8_t first_sunday = (7 + tinfo->tm_mday - tinfo->tm_wday) % 7 + 1; // first sunday of current month
- if ( (tinfo->tm_mon + 1) == 3 ) // Starts at 2:00 am on the second sunday of Mar
+ if ( (ntpTimeInfo->tm_mon + 1) < 3 || (ntpTimeInfo->tm_mon + 1) > 11 ) return false;
+ if ( (ntpTimeInfo->tm_mon + 1) > 3 && (ntpTimeInfo->tm_mon + 1) < 11 ) return true;
+ uint8_t first_sunday = (7 + ntpTimeInfo->tm_mday - ntpTimeInfo->tm_wday) % 7 + 1; // first sunday of current month
+ if ( (ntpTimeInfo->tm_mon + 1) == 3 ) // Starts at 2:00 am on the second sunday of Mar
   {
-  if ( tinfo->tm_mday < 7 + first_sunday ) return false;
-  if ( tinfo->tm_mday > 7 + first_sunday ) return true;
-  return ( tinfo->tm_hour > 2 );
+  if ( ntpTimeInfo->tm_mday < 7 + first_sunday ) return false;
+  if ( ntpTimeInfo->tm_mday > 7 + first_sunday ) return true;
+  return ( ntpTimeInfo->tm_hour > 2 );
   }
- if ( tinfo->tm_mday < first_sunday ) return true; // Ends a 2:00 am on the first sunday of Nov. We are only getting here if its Nov
- if ( tinfo->tm_mday > first_sunday ) return false;
- return (tinfo->tm_hour < 2);
+ if ( ntpTimeInfo->tm_mday < first_sunday ) return true; // Ends a 2:00 am on the first sunday of Nov. We are only getting here if its Nov
+ if ( ntpTimeInfo->tm_mday > first_sunday ) return false;
+ return (ntpTimeInfo->tm_hour < 2);
  }
 return false;
 }
 
 void check_DaylightSave()
 { 
-boolean curIsDaylightSave = isSummerTimeNow();
-timeClient.setTimeOffset(ntpTimeZone * 3600 + curIsDaylightSave * 3600);
-if ( (!timeSyncOK) && timeSyncInitially )
- { curEpochTime = timeClient.getEpochTime(); }
-else
- {
- if ( curIsDaylightSave != previousIsDaylightSave )
-  { 
-  if ( curIsDaylightSave ) 
-   {
-   curEpochTime += 3600;
-   log_Append(LOG_EVENT_DAYLIGHT_SAVING_ON);
-   }
-  else
-   {
-   curEpochTime -= 3600;
-   log_Append(LOG_EVENT_DAYLIGHT_SAVING_OFF);
-   } 
-  }
+curIsDaylightSave = isSummerTimeNow();
+if ( curIsDaylightSave != previousIsDaylightSave )
+ { 
+ ntpGetTime();
+ if ( millis() > 60000 ) { log_Append( (curIsDaylightSave ? LOG_EVENT_DAYLIGHT_SAVING_ON : LOG_EVENT_DAYLIGHT_SAVING_OFF) ); }
  }
 previousIsDaylightSave = curIsDaylightSave; 
 } 
@@ -550,11 +693,13 @@ else if ( upload.status == UPLOAD_FILE_END )
 
 void log_process()
 {
-if ( (!littleFS_OK) || (!timeSyncInitially) ) { return; }
+static bool log_processAfterStart = true;
+static unsigned long log_lastProcess = 0;
+if ( (!littleFS_OK) || (!ntpTimeIsSynked) ) { return; }
 unsigned long currentMillis = millis();
 if  ( currentMillis - log_lastProcess > 1000UL || log_processAfterStart )
  {
- time_t today = curEpochTime / 86400 * 86400; // remove the time part
+ time_t today = ntpcurEpochTime / 86400 * 86400; // remove the time part
  if ( log_today != today ) // we have switched to another day
   { 
   log_today = today;
@@ -703,17 +848,16 @@ yield();
 content = "";
 if ( index == 0 )
  {
- struct tm *tinfo = gmtime(&curEpochTime);
  content += (Language ? F("Универсальный программируемый таймер, версия ") : F("Versatile timer, version "));
  content += VERSION;
  content += (Language ? F("</span><p>Время: <b>") : F("</span><p>Time: <b>"));
- content += String(tinfo->tm_hour) + F(":")  + ( tinfo->tm_min < 10 ? "0" : "" ) + String(tinfo->tm_min) + F(":") 
-         + ( tinfo->tm_sec < 10 ? "0" : "" ) + String(tinfo->tm_sec) + F("</b>,&nbsp;<b>");
- content += namesOfDays[Language][tinfo->tm_wday];
- if ( !timeSyncNTPOK )
+ content += String(ntpTimeInfo->tm_hour) + F(":")  + ( ntpTimeInfo->tm_min < 10 ? "0" : "" ) + String(ntpTimeInfo->tm_min) + F(":") 
+         + ( ntpTimeInfo->tm_sec < 10 ? "0" : "" ) + String(ntpTimeInfo->tm_sec) + F("</b>,&nbsp;<b>");
+ content += namesOfDays[Language][ntpTimeInfo->tm_wday];
+ if ( !ntpTimeIsSynked )
   {
   content += F("&emsp;<font color='red'>"); 
-  content += (Language ? F("Ошибка NTP синхронизации времени") : F("NTP time sync error"));
+  content += (Language ? F("Ошибка синхронизации времени") : F("Time sync error"));
   content += F("</font>"); 
   }
  long secs = millis()/1000;
@@ -813,21 +957,24 @@ if ( LittleFS.exists(path) )
    content += F("<tr><td align='center'>");
    content += String(ls) + F("</td><td>&emsp;");
    struct tm *ptm = gmtime((time_t *)&rl.utc); 
-   content += (rl.event == LOG_EVENT_START_STA ? F("<u>") : F(""));
+   content += (rl.event == LOG_EVENT_START ? F("<u>") : F(""));
    content += String(ptm->tm_mday) + F(".") 
             + (ptm->tm_mon + 1 < 10 ? F("0") : F("")) + String(ptm->tm_mon + 1) + F(".") 
             + String(ptm->tm_year + 1900) + F("&emsp;")
             + (ptm->tm_hour < 10 ? F("0") : F("")) + String(ptm->tm_hour) + F(":") 
             + (ptm->tm_min  < 10 ? F("0") : F("")) + String(ptm->tm_min) + F(":") 
             + (ptm->tm_sec  < 10 ? F("0") : F("")) + String(ptm->tm_sec) 
-            + (rl.event == LOG_EVENT_START_STA ? F("</u>") : F(""))
+            + (rl.event == LOG_EVENT_START ? F("</u>") : F(""))
             + F("</td><td>&emsp;");
-   if ( rl.event == LOG_EVENT_START_STA || rl.event == LOG_EVENT_RESTART_TO_AP_MODE
+   if ( rl.event == LOG_EVENT_START || rl.event == LOG_EVENT_RESTART_TO_AP_MODE
      || rl.event == LOG_EVENT_DAYLIGHT_SAVING_ON || rl.event == LOG_EVENT_DAYLIGHT_SAVING_OFF 
      || rl.event >= LOG_EVENT_NUMBER_OF_TASKS_CHANGED
+     || (rl.event >= LOG_EVENT_RESTART_REASON_0 && rl.event <= LOG_EVENT_RESTART_REASON_UNKNOWN)
       )
     {
-    content += namesOfEvents[Language][rl.event];
+    content += (rl.event == LOG_EVENT_START ? F("<u>") : F(""))
+             + namesOfEvents[Language][rl.event]
+             + (rl.event == LOG_EVENT_START ? F("</u>") : F(""));
     }
    else if ( rl.event == LOG_EVENT_TASK_SWITCHING_MANUALLY || rl.event == LOG_EVENT_TASK_SWITCHING_BY_TASK ) 
     {
@@ -1207,15 +1354,14 @@ int usedBytes = drawFSinfo();
 // Save
 if ( littleFStotalBytes - usedBytes >= littleFSblockSize )
  {
- struct tm *tinfo = gmtime(&curEpochTime);
  content += F("<p><form method='get' form action='/savesettings'>");
  content += (Language ? F("Сохранить все настройки в файл") : F("Save all settings to file"));
  content += F(":&emsp;<input maxlength='30' name='fn' size='30' type='text' pattern='[a-zA-Z0-9-_.]+' required value='");
- content += String(1900 + tinfo->tm_year) + F("-")
-         + ( tinfo->tm_mon + 1 < 10 ? F("0") : F("") ) + String(tinfo->tm_mon + 1) + F("-")
-         + ( tinfo->tm_mday < 10 ? F("0") : F("") ) + String(tinfo->tm_mday) + F("-")
-         + ( tinfo->tm_hour < 10 ? F("0") : F("") ) + String(tinfo->tm_hour) + F("-")
-         + ( tinfo->tm_min < 10 ? F("0") : F("") ) + String(tinfo->tm_min) + F(".VTcfg");
+ content += String(1900 + ntpTimeInfo->tm_year) + F("-")
+         + ( ntpTimeInfo->tm_mon + 1 < 10 ? F("0") : F("") ) + String(ntpTimeInfo->tm_mon + 1) + F("-")
+         + ( ntpTimeInfo->tm_mday < 10 ? F("0") : F("") ) + String(ntpTimeInfo->tm_mday) + F("-")
+         + ( ntpTimeInfo->tm_hour < 10 ? F("0") : F("") ) + String(ntpTimeInfo->tm_hour) + F("-")
+         + ( ntpTimeInfo->tm_min < 10 ? F("0") : F("") ) + String(ntpTimeInfo->tm_min) + F(".VTcfg");
  content += F("' />&emsp;<input type='submit' value='");
  content += (Language ? F("Сохранить") : F("Save"));
  content += F("' /></form></p>");
@@ -1540,6 +1686,8 @@ content += F("<form action='/firmware' form method='get'><input name='fwu' type=
 content += (Language ? F("Обновление прошивки") : F("Firmware update"));
 content += F("' /></form><form action='/cleartasklist' form method='get' onsubmit='warn();return false;'><input name='ctl' type='submit' value='");
 content += (Language ? F("Очистить и отключить все задания (будьте осторожны!)") : F("Clear and disable all tasks (be careful!)"));
+content += F("' /></form><form action='/format' form method='get' onsubmit='warn();return false;'><input name='fmt' type='submit' value='");
+content += (Language ? F("Удалить все журналы и файлы настроек (будьте осторожны!)") : F("Delete all logs and settings files (be careful!)"));
 content += F("' /></form><form action='/reset' form method='get' onsubmit='warn();return false;'><input name='rst' type='submit' value='");
 content += (Language ? F("Сброс всех настроек (будьте осторожны!)") : F("Reset to defaults (be careful!)"));
 content += F("' /></form>");
@@ -1622,8 +1770,8 @@ uint8_t b;
 for ( int i = NTP_TIME_SERVER_EEPROM_ADDRESS; i < NTP_TIME_SERVER_EEPROM_ADDRESS + 32; ++i) 
  { b = EEPROM.read(i); if ( b > 0 && b < 255 ) { ntpServerName += char(b); } }
 if ( ntpServerName == "" ) { ntpServerName = NTP_SERVER_NAME; }
-timeClient.setPoolServerName(ntpServerName.c_str());
-timeClient.forceUpdate();
+configTime("GMT0",ntpServerName.c_str());
+ntpGetTime();
 }
 
 void read_login_pass_from_EEPROM()
@@ -1744,20 +1892,20 @@ return found;
 
 void find_next_tasks()  
 {
+if ( !ntpTimeIsSynked ) { return; }  
 if ( !thereAreEnabledTasks ) { return; }  
 int chNum, findDOW;
 byte foundTask, DaysCounter;
-struct tm *tinfo = gmtime(&curEpochTime);
 for ( chNum = 0; chNum < numberOfChannels; chNum++ )
  {
  yield(); 
  if ( NumEnabledTasks[chNum] == 0 ) { continue; }
  foundTask = TASKLIST_MAX_NUMBER;  
- findDOW = tinfo->tm_wday;
+ findDOW = ntpTimeInfo->tm_wday;
  DaysCounter = 0;
  while ( DaysCounter < 7 ) 
   {
-  foundTask = find_next_tasks_within_day(chNum, tinfo->tm_wday, findDOW, tinfo->tm_hour, tinfo->tm_min, tinfo->tm_sec);
+  foundTask = find_next_tasks_within_day(chNum, ntpTimeInfo->tm_wday, findDOW, ntpTimeInfo->tm_hour, ntpTimeInfo->tm_min, ntpTimeInfo->tm_sec);
   if ( foundTask < TASKLIST_MAX_NUMBER ) { break; }
   DaysCounter++;
   if ( findDOW == 6 ) { findDOW = 0; } else { findDOW++; }
@@ -1797,11 +1945,11 @@ return found;
 
 void check_previous_tasks()  
 {
+if ( !ntpTimeIsSynked ) { return; }  
 if ( !thereAreEnabledTasks ) { return; }  
 bool needSave = false;  
 int chNum, findDOW;
 byte foundTask, DaysCounter;
-struct tm *tinfo = gmtime(&curEpochTime);
 for ( chNum = 0; chNum < numberOfChannels; chNum++ )
  {
  yield(); 
@@ -1823,12 +1971,12 @@ for ( chNum = 0; chNum < numberOfChannels; chNum++ )
    }  
   continue;
   }
- findDOW = tinfo->tm_wday;
+ findDOW = ntpTimeInfo->tm_wday;
  foundTask = TASKLIST_MAX_NUMBER;  
  DaysCounter = 0;
  while ( DaysCounter < 7 ) 
   {
-  foundTask = check_previous_tasks_within_day(chNum, tinfo->tm_wday, findDOW, tinfo->tm_hour, tinfo->tm_min, tinfo->tm_sec);
+  foundTask = check_previous_tasks_within_day(chNum, ntpTimeInfo->tm_wday, findDOW, ntpTimeInfo->tm_hour, ntpTimeInfo->tm_min, ntpTimeInfo->tm_sec);
   if ( foundTask < TASKLIST_MAX_NUMBER ) { break; }
   DaysCounter++;
   if ( findDOW == 0 ) { findDOW = 6; } else { findDOW--; }
@@ -2074,6 +2222,15 @@ server.on("/cleartasklist", []()
  log_Append(LOG_EVENT_CLEAR_TASKLIST); 
  save_tasklist_to_EEPROM(); 
  ServerSendMessageAndRefresh();
+ }); 
+server.on("/format", []()
+ { 
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ if ( littleFS_OK ) 
+  {
+  LittleFS.format();
+  ServerSendMessageAndReboot();
+  }
  }); 
 server.on("/setnumberOfTasks", []() 
  { 
@@ -2631,7 +2788,7 @@ server.on("/setchannellistcollapsed", []()
  }); 
 server.on("/viewlog", []()
  { 
- log_ViewDate = curEpochTime;
+ log_ViewDate = ntpcurEpochTime;
  log_CalcForViewDate();
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  ServerSendMessageAndRefresh( 0, LOG_DIR );
@@ -2803,8 +2960,14 @@ if ( !AccessPointMode )
  }
 // 
 read_manually_set_addresses();
-if ( !AccessPointMode ) { statusWiFi = begin_WiFi_STA(); }
-                   else { statusWiFi = begin_WiFi_AP(); }
+if ( !AccessPointMode ) 
+ { 
+ settimeofday_cb(ntpTimeSynked); // optional callback function
+ configTime("GMT0",ntpServerName.c_str());
+ RTCMEMread();
+ statusWiFi = begin_WiFi_STA();
+ }
+else { statusWiFi = begin_WiFi_AP(); }
 previousstatusWiFi = !statusWiFi;                   
 if ( ipEmpty(wifiManuallySetIP) )     { wifiManuallySetIP = WiFi.localIP(); }
 if ( ipEmpty(wifiManuallySetGW) )     { wifiManuallySetGW = WiFi.gatewayIP(); }
@@ -2820,21 +2983,18 @@ setupServer();
 server.begin();
 if ( !AccessPointMode ) 
  {
- timeClient.begin();
- timeClient.setTimeOffset(ntpTimeZone * 3600);
  if ( MDNS.begin(MDNSHOST) ) { MDNS.addService("http", "tcp", 80); }
  }
 ESP.wdtEnable(WDTO_8S);
-everySecondTimer = millis();
 everyMinuteTimer = millis();
-CheckTaskListTimer = millis();
+everyHalfSecondTimer = millis();
 if ( AccessPointMode ) { AccessPointModeTimer = millis(); }
 }
 
 void loop()
 {
 yield(); delay(0);
-if ( AccessPointMode ) 
+if ( AccessPointMode )
  {
  server.handleClient();
  MDNS.update();
@@ -2846,80 +3006,41 @@ if ( statusWiFi )
  {
  server.handleClient();
  MDNS.update();
- timeSyncNTPOK = timeClient.update(); 
- timeSyncOK = timeSyncNTPOK;
  } 
-else { timeSyncOK = false; }
-if ( timeSyncOK )
+if ( ntpTimeIsSynkedFirst && ntpTimeIsSynked )
  {
- unsigned long difference = 0;
- if ( timeSyncInitially )
+ check_DaylightSave(); 
+ log_process();
+ if ( EEPROM.read(BUILD_HOUR_EEPROM_ADDRESS) != FW_H || EEPROM.read(BUILD_MIN_EEPROM_ADDRESS)  != FW_M || EEPROM.read(BUILD_SEC_EEPROM_ADDRESS)  != FW_S ) 
   {
-  difference = ( curEpochTime > timeClient.getEpochTime() ? (curEpochTime - timeClient.getEpochTime()) 
-                                                          : (timeClient.getEpochTime() - curEpochTime) );
+  EEPROM.write(BUILD_HOUR_EEPROM_ADDRESS, FW_H);
+  EEPROM.write(BUILD_MIN_EEPROM_ADDRESS, FW_M);
+  EEPROM.write(BUILD_SEC_EEPROM_ADDRESS, FW_S);
+  EEPROM.commit();
+  log_Append(LOG_EVENT_FIRMWARE_UPDATED); 
   }
- if ( difference < EPOCHTIMEMAXDIFF ) // check the correctness of the received time relative to the set
-  { 
-  curEpochTime = timeClient.getEpochTime();  
-  if ( !timeSyncInitially ) 
-   {
-   timeSyncInitially = true;
-   check_DaylightSave(); 
-   log_process();
-   if ( EEPROM.read(BUILD_HOUR_EEPROM_ADDRESS) != FW_H
-     || EEPROM.read(BUILD_MIN_EEPROM_ADDRESS)  != FW_M
-     || EEPROM.read(BUILD_SEC_EEPROM_ADDRESS)  != FW_S ) 
-    {
-    EEPROM.write(BUILD_HOUR_EEPROM_ADDRESS, FW_H);
-    EEPROM.write(BUILD_MIN_EEPROM_ADDRESS, FW_M);
-    EEPROM.write(BUILD_SEC_EEPROM_ADDRESS, FW_S);
-    EEPROM.commit();
-    log_Append(LOG_EVENT_FIRMWARE_UPDATED); 
-    }
-   log_Append(LOG_EVENT_START_STA);
-   check_previous_tasks(); 
-   find_next_tasks();
-   timeClient.setUpdateInterval(NTPUPDATEINTERVAL);
-   everyMinuteTimer = millis();
-   }
-  }
+ getLastResetReason();
+ check_previous_tasks(); 
+ find_next_tasks();
+ everyMinuteTimer = millis();
+ ntpTimeIsSynkedFirst = false;
  }
 if ( statusWiFi != previousstatusWiFi )
  {
  log_Append(statusWiFi ? LOG_EVENT_WIFI_CONNECTION_SUCCESS : LOG_EVENT_WIFI_CONNECTION_ERROR); 
  previousstatusWiFi = statusWiFi; 
  }
-if ( timeSyncNTPOK != previoustimeSyncNTPOK )
- {
- log_Append(timeSyncOK ? LOG_EVENT_TIME_SYNC_SUCCESS : LOG_EVENT_TIME_SYNC_ERROR); 
- previoustimeSyncNTPOK = timeSyncNTPOK;
- }
-if ( millis() - everySecondTimer > 1000 )
- {
- setClockcurrentMillis = millis();  
- if ( (!timeSyncOK) && timeSyncInitially )
-  {
-  // Update the time when there is no NTP sync 
-  if ( setClockcurrentMillis < setClockpreviousMillis ) { setClockcurrentMillis = setClockpreviousMillis; }
-  setClockelapsedMillis += (setClockcurrentMillis - setClockpreviousMillis);
-  while ( setClockelapsedMillis > 999 )
-   {
-   curEpochTime++;
-   setClockelapsedMillis -= 1000;
-   }
-  timeSyncOK = true; 
-  } 
- setClockpreviousMillis = setClockcurrentMillis; 
- everySecondTimer = millis(); 
- } 
-if ( millis() - everyMinuteTimer > 60000 )
+if ( millis() - everyMinuteTimer > 60000UL )
  {
  check_DaylightSave();
  everyMinuteTimer = millis();
  } 
-if ( millis() - CheckTaskListTimer > 500 )
+if ( millis() - everyHalfSecondTimer > 500UL )
  {
- if ( timeSyncOK ) { check_previous_tasks(); find_next_tasks(); } 
- CheckTaskListTimer = millis();
+ ntpGetTime();
+ yield(); delay(0);
+ check_previous_tasks();
+ find_next_tasks();
+ everyHalfSecondTimer = millis();
  }
 }
