@@ -19,7 +19,7 @@
 //
 #include "Secrets.h"
 
-#define VERSION                             "22.427"
+#define VERSION                             "22.502"
 #define NTP_SERVER_NAME        "europe.pool.ntp.org" // default value for String ntpServerName
 #define MDNSHOST                                "VT" // mDNS host (+ ".local")
 #define APMODE_SSID                       "VT_SETUP" // SSID in AP mode
@@ -109,9 +109,11 @@
 #define ACTION_TURN_OFF                           10
 #define ACTION_TURN_ON                            11 
 #define LOG_DIR                               "/log"
+#define LOG_BUFFER_SIZE                           20
 #define LOG_VIEWSTEP_DEF                          20
 #define LOG_VIEWSTEP_MIN                           5
 #define LOG_VIEWSTEP_MAX                          50
+#define LOG_POLLING                              255
 #define LOG_EVENT_START                            0
 #define LOG_EVENT_TASK_SWITCHING_MANUALLY          1
 #define LOG_EVENT_TASK_SWITCHING_BY_TASK           2
@@ -157,11 +159,13 @@
 #define LOG_EVENT_RESTART_REASON_6                42
 #define LOG_EVENT_RESTART_REASON_UNKNOWN          43
 #define LOG_EVENT_RTCMEM_TIME_SYNC_SUCCESS        44
+#define LOG_EVENT_RTCMEM_READ_ERROR               45
+#define LOG_EVENT_RTCMEM_WRITE_ERROR              46
 //                    GPIO      0     1    2    3    4    5     6     7     8     9    10    11   12   13   14   15   16
 const String NodeMCUpins[] = {"D3","D10","D4","D9","D2","D1","N/A","N/A","N/A","D11","D12","N/A","D6","D7","D5","D8","D0"};
 const String namesOfDays[][10] = {{"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Workdays","Weekends","Every day"},
                                   {"Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Рабочие дни","Выходные дни","Каждый день"}};
-const String namesOfEvents[][45] = {{"Start"
+const String namesOfEvents[][47] = {{"Start"
                                     ,"Manual <b>switching</b>","<b>Switching</b> by task"
                                     ,"manually","until next task","by tasks"
                                     ,"Daylight saving ON","Daylight saving OFF"
@@ -177,8 +181,8 @@ const String namesOfEvents[][45] = {{"Start"
                                     ,"Settings file deleted","Settings file downloaded","Settings file uploaded"
                                     ,"Firmware updated","Tasklist cleared","Doing manual restart"
                                     ,"Log entries per page changed","Number of days to keep the log changed"
-                                    ,"NTP time synchronization <font color='red'>error</font>"
-                                    ,"NTP time synchronization successful"
+                                    ,"Time synchronization <font color='red'>error</font> (NTP)"
+                                    ,"Time synchronization successful (NTP)"
                                     ,"Wi-Fi connection <font color='red'>lost</font>"
                                     ,"Connected to Wi-Fi"
                                     ,"Normal startup by power on"
@@ -189,7 +193,9 @@ const String namesOfEvents[][45] = {{"Start"
                                     ,"Wake up from deep-sleep"
                                     ,"Power on or external system reset"
                                     ,"Restart (reason unknown)"                                    
-                                    ,"RTCMEM time synchronization successful"
+                                    ,"Time synchronization successful (RTCMEM)"
+                                    ,"RTCMEM read <font color='red'>error</font>"
+                                    ,"RTCMEM write <font color='red'>error</font>"
                                     },
                                     {"Старт"
                                     ,"<b>Переключение</b> вручную","<b>Переключение</b> по заданию"
@@ -208,7 +214,7 @@ const String namesOfEvents[][45] = {{"Start"
                                     ,"Прошивка обновлена","Список заданий очищен","Ручная перезагрузка"
                                     ,"Количество записей журнала на странице изменено","Количество дней хранения журнала изменено"
                                     ,"<font color='red'>Ошибка</font> синхронизации времени (NTP)"
-                                    ,"Синхронизация времени (NTP) прошла успешно"
+                                    ,"Синхронизация времени успешна (NTP)"
                                     ,"Подключение к Wi-Fi <font color='red'>потеряно</font>"
                                     ,"Подключено к Wi-Fi"
                                     ,"Начало работы (подача питания)"
@@ -219,7 +225,9 @@ const String namesOfEvents[][45] = {{"Start"
                                     ,"Пробуждение из режима глубокого сна"
                                     ,"Включение питания, или внешний сброс системы"
                                     ,"Перезагрузка (причина неизвестна)"                                    
-                                    ,"Синхронизация времени (RTCMEM) прошла успешно"
+                                    ,"Синхронизация времени успешна (RTCMEM)"
+                                    ,"RTCMEM <font color='red'>ошибка</font> чтения"
+                                    ,"RTCMEM <font color='red'>ошибка</font> записи"
                                     }};
 const uint8_t monthDays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
 //
@@ -251,6 +259,7 @@ int numLOGfiles = 0;
 byte log_DaysToKeep;
 byte log_ViewStep;
 int log_NumRecords = 0;
+Log_Data log_delayed_write_buffer[LOG_BUFFER_SIZE];
 time_t log_ViewDate;
 String log_CurDate;
 String log_MinDate;
@@ -314,21 +323,44 @@ uint32_t sntp_update_delay_MS_rfc_not_less_than_15000() { return NTPPOLLINGNTERV
 
 void log_Append(uint8_t ev, uint8_t ch = 0, uint8_t ts = 0, uint8_t act = 0 )
 {
-static bool logEventStartAppended = false;
-if ( (!littleFS_OK) || (!ntpTimeIsSynked) ) { return; }
-log_process();
+if ( !littleFS_OK ) { return; }
+if ( !ntpTimeIsSynked && ev != LOG_POLLING ) 
+ {
+ for ( int i = 0; i < LOG_BUFFER_SIZE; i++ ) 
+  {
+  if ( log_delayed_write_buffer[i].event == LOG_POLLING )
+   {
+   log_delayed_write_buffer[i] = { millis(), ev, ch, ts, act }; 
+   break;
+   }
+  }
+ return;
+ }
 struct Log_Data logdata;
-if ( !logEventStartAppended ) 
+if ( log_delayed_write_buffer[0].event != LOG_POLLING )
+ {
+ log_process();
+ for ( int i = 0; i < LOG_BUFFER_SIZE; i++ ) 
+  {
+  yield(); delay(1); yield();  
+  if ( log_delayed_write_buffer[i].event != LOG_POLLING )
+   {
+   logdata = { ntpcurEpochTime - ((millis() - log_delayed_write_buffer[i].utc) / 1000)
+              ,log_delayed_write_buffer[i].event,log_delayed_write_buffer[i].ch,log_delayed_write_buffer[i].task,logdata.act };
+   File f = LittleFS.open(log_curPath, "a");
+   if ( f ) { f.write((uint8_t *)&logdata, sizeof(logdata)); f.close(); 
+              log_delayed_write_buffer[i].event = LOG_POLLING; }
+   }
+  else { break; }    
+  }
+ }
+if ( ev != LOG_POLLING )
  { 
- logdata = { ntpcurEpochTime, LOG_EVENT_START, 0, 0, 0 };
+ log_process();
+ logdata = { ntpcurEpochTime, ev, ch, ts, act };
  File f = LittleFS.open(log_curPath, "a");
  if ( f ) { f.write((uint8_t *)&logdata, sizeof(logdata)); f.close(); }
- yield(); delay(1); yield();
- logEventStartAppended = true; 
  }
-logdata = { ntpcurEpochTime, ev, ch, ts, act };
-File f = LittleFS.open(log_curPath, "a");
-if ( f ) { f.write((uint8_t *)&logdata, sizeof(logdata)); f.close(); }
 }
 
 void getLastResetReason()
@@ -349,6 +381,18 @@ else if ( reason == REASON_SOFT_RESTART ) { log_Append(LOG_EVENT_RESTART_REASON_
 else if ( reason == REASON_DEEP_SLEEP_AWAKE ) { log_Append(LOG_EVENT_RESTART_REASON_5); } // 5 wake up from deep-sleep
 else if ( reason == REASON_EXT_SYS_RST ) { log_Append(LOG_EVENT_RESTART_REASON_6); } // 6 external system reset
 else { log_Append(LOG_EVENT_RESTART_REASON_UNKNOWN); }
+}
+
+void checkFirmwareUpdated()
+{
+if ( EEPROM.read(BUILD_HOUR_EEPROM_ADDRESS) != FW_H || EEPROM.read(BUILD_MIN_EEPROM_ADDRESS)  != FW_M || EEPROM.read(BUILD_SEC_EEPROM_ADDRESS)  != FW_S ) 
+ {
+ EEPROM.write(BUILD_HOUR_EEPROM_ADDRESS, FW_H);
+ EEPROM.write(BUILD_MIN_EEPROM_ADDRESS, FW_M);
+ EEPROM.write(BUILD_SEC_EEPROM_ADDRESS, FW_S);
+ EEPROM.commit();
+ log_Append(LOG_EVENT_FIRMWARE_UPDATED); 
+ }
 }
 
 uint32_t calculateCRC32(const uint8_t *data, size_t length) 
@@ -404,6 +448,7 @@ else
  #ifdef DEBUG 
   Serial.println(F("Reading data from RTC memory failed !"));
  #endif
+ log_Append(LOG_EVENT_RTCMEM_READ_ERROR);
  }
 }
 
@@ -423,6 +468,7 @@ ntpLastSynkedTimer = millis();
 void ntpGetTime() 
 {
 static unsigned long everySecondTimer = 0;  
+static bool writeErrorToLogOnlyOnce = false;
 if ( !ntpTimeIsSynked ) { return; }
 yield(); delay(1); yield();
 time(&ntpcurEpochTime); // get GMT0 epoch time (this function calls the NTP server every NTPPOLLINGNTERVAL ms)
@@ -437,6 +483,11 @@ if ( millis() - everySecondTimer > 1000UL )
   #ifdef DEBUG 
    Serial.println(F("Storing data to RTC memory failed !"));
   #endif
+  if ( !writeErrorToLogOnlyOnce ) 
+   {
+   log_Append(LOG_EVENT_RTCMEM_WRITE_ERROR);
+   writeErrorToLogOnlyOnce = true;
+   }
   }
  everySecondTimer = millis(); 
  }
@@ -2899,6 +2950,7 @@ littleFS_OK = LittleFS.begin();
 #endif 
 if ( littleFS_OK ) 
  {
+ for ( int i = 0; i < LOG_BUFFER_SIZE; i++ ) { log_delayed_write_buffer[i].event = LOG_POLLING; }
  FSInfo fs_info;
  LittleFS.info(fs_info);
  littleFStotalBytes = fs_info.totalBytes;
@@ -2944,6 +2996,7 @@ read_settings_from_EEPROM();
 read_and_set_ntpservername_from_EEPROM();
 read_login_pass_from_EEPROM();
 read_AP_name_pass_from_EEPROM();
+read_manually_set_addresses();
 ChannelList = new uint8_t*[numberOfChannels];
 for ( int chNum = 0; chNum < numberOfChannels; chNum++ ) 
  {
@@ -2957,13 +3010,13 @@ if ( !AccessPointMode )
  { 
  read_channellist_from_EEPROM_and_switch_channels();
  read_and_sort_tasklist_from_EEPROM();
- }
-// 
-read_manually_set_addresses();
-if ( !AccessPointMode ) 
- { 
+ yield(); 
  settimeofday_cb(ntpTimeSynked); // optional callback function
  configTime("GMT0",ntpServerName.c_str());
+ yield(); 
+ log_Append(LOG_EVENT_START);
+ checkFirmwareUpdated();
+ getLastResetReason();
  RTCMEMread();
  statusWiFi = begin_WiFi_STA();
  }
@@ -2981,10 +3034,7 @@ EEPROMWriteInt(COUNTER_OF_REBOOTS_EEPROM_ADDRESS, counterOfReboots);
 //
 setupServer();
 server.begin();
-if ( !AccessPointMode ) 
- {
- if ( MDNS.begin(MDNSHOST) ) { MDNS.addService("http", "tcp", 80); }
- }
+if ( !AccessPointMode ) { if ( MDNS.begin(MDNSHOST) ) { MDNS.addService("http", "tcp", 80); } }
 ESP.wdtEnable(WDTO_8S);
 everyMinuteTimer = millis();
 everyHalfSecondTimer = millis();
@@ -2994,10 +3044,10 @@ if ( AccessPointMode ) { AccessPointModeTimer = millis(); }
 void loop()
 {
 yield(); delay(0);
+log_Append(LOG_POLLING);
 if ( AccessPointMode )
  {
  server.handleClient();
- MDNS.update();
  if ( millis() - AccessPointModeTimer > ACCESS_POINT_MODE_TIMER_INTERVAL ) { ServerSendMessageAndReboot(); }
  return;
  }  
@@ -3011,15 +3061,6 @@ if ( ntpTimeIsSynkedFirst && ntpTimeIsSynked )
  {
  check_DaylightSave(); 
  log_process();
- if ( EEPROM.read(BUILD_HOUR_EEPROM_ADDRESS) != FW_H || EEPROM.read(BUILD_MIN_EEPROM_ADDRESS)  != FW_M || EEPROM.read(BUILD_SEC_EEPROM_ADDRESS)  != FW_S ) 
-  {
-  EEPROM.write(BUILD_HOUR_EEPROM_ADDRESS, FW_H);
-  EEPROM.write(BUILD_MIN_EEPROM_ADDRESS, FW_M);
-  EEPROM.write(BUILD_SEC_EEPROM_ADDRESS, FW_S);
-  EEPROM.commit();
-  log_Append(LOG_EVENT_FIRMWARE_UPDATED); 
-  }
- getLastResetReason();
  check_previous_tasks(); 
  find_next_tasks();
  everyMinuteTimer = millis();
