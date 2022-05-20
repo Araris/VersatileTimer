@@ -19,7 +19,7 @@
 //
 #include "Secrets.h"
 
-#define VERSION                             "22.502"
+#define VERSION                             "22.520"
 #define NTP_SERVER_NAME        "europe.pool.ntp.org" // default value for String ntpServerName
 #define MDNSHOST                                "VT" // mDNS host (+ ".local")
 #define APMODE_SSID                       "VT_SETUP" // SSID in AP mode
@@ -183,7 +183,7 @@ const String namesOfEvents[][47] = {{"Start"
                                     ,"Log entries per page changed","Number of days to keep the log changed"
                                     ,"Time synchronization <font color='red'>error</font> (NTP)"
                                     ,"Time synchronization successful (NTP)"
-                                    ,"Wi-Fi connection <font color='red'>lost</font>"
+                                    ,"<font color='red'>No</font> Wi-Fi connection"
                                     ,"Connected to Wi-Fi"
                                     ,"Normal startup by power on"
                                     ,"Restart after hardware watch dog reset"
@@ -215,7 +215,7 @@ const String namesOfEvents[][47] = {{"Start"
                                     ,"Количество записей журнала на странице изменено","Количество дней хранения журнала изменено"
                                     ,"<font color='red'>Ошибка</font> синхронизации времени (NTP)"
                                     ,"Синхронизация времени успешна (NTP)"
-                                    ,"Подключение к Wi-Fi <font color='red'>потеряно</font>"
+                                    ,"Подключение к Wi-Fi <font color='red'>отсутствует</font>"
                                     ,"Подключено к Wi-Fi"
                                     ,"Начало работы (подача питания)"
                                     ,"Перезагрузка аппаратным сторожевым таймером"
@@ -310,6 +310,7 @@ time_t ntpcurEpochTime;
 struct tm *ntpTimeInfo;
 bool ntpTimeIsSynkedFirst = true;
 bool ntpTimeIsSynked = false;
+bool rtcmemTimeIsSynced = false;
 bool ntpLastPollingSuccess = false;
 unsigned long ntpLastSynkedTimer = 0;
 bool statusWiFi = false;
@@ -421,19 +422,11 @@ struct { uint32_t RTCMEMcrc32; time_t RTCMEMEpochTime; } RTCMEMData;
 if ( ESP.rtcUserMemoryRead(0, (uint32_t *)&RTCMEMData, sizeof(RTCMEMData)) ) 
  {
  uint32_t crcOfRTCMEMEpochTime = calculateCRC32((uint8_t *)&RTCMEMData.RTCMEMEpochTime, sizeof(RTCMEMData.RTCMEMEpochTime));
- #ifdef DEBUG 
-  Serial.print(F("CRC of data: "));
-  Serial.println(crcOfRTCMEMEpochTime);
-  Serial.print(F("CRC read from RTC: "));
-  Serial.println(RTCMEMData.RTCMEMcrc32);
-  Serial.print(F("RTCMEMData.RTCMEMEpochTime = "));
-  Serial.println(RTCMEMData.RTCMEMEpochTime);
- #endif
  if ( crcOfRTCMEMEpochTime == RTCMEMData.RTCMEMcrc32 )
   {
   ntpcurEpochTime = RTCMEMData.RTCMEMEpochTime + (millis() / 1000) + 1;
   #ifdef DEBUG 
-   Serial.println(F("CRC OK, set datetimefrom RTCMEM"));
+   Serial.println(F("CRC OK, set datetime from RTCMEM"));
   #endif
   timeval tv = { ntpcurEpochTime, 0 };
   settimeofday(&tv, nullptr);
@@ -441,6 +434,7 @@ if ( ESP.rtcUserMemoryRead(0, (uint32_t *)&RTCMEMData, sizeof(RTCMEMData)) )
   yield(); delay(1); yield();
   ntpGetTime();
   log_Append(LOG_EVENT_RTCMEM_TIME_SYNC_SUCCESS);  
+  rtcmemTimeIsSynced = true;
   } 
  }
 else 
@@ -454,11 +448,15 @@ else
 
 void ntpTimeSynked() 
 {  
-bool appLog = false;
-if ( !ntpTimeIsSynked ) { appLog = true; }
+bool appLog = !ntpTimeIsSynked;
 ntpTimeIsSynked = true;  
 ntpLastPollingSuccess = true;
-if ( appLog ) { ntpGetTime(); log_Append(LOG_EVENT_NTP_TIME_SYNC_SUCCESS); }
+if ( appLog || rtcmemTimeIsSynced ) 
+ { 
+ ntpGetTime(); 
+ log_Append(LOG_EVENT_NTP_TIME_SYNC_SUCCESS); 
+ rtcmemTimeIsSynced = false;
+ }
 ntpLastSynkedTimer = millis();
 #ifdef DEBUG 
  Serial.println(F("NTP time is synked"));
@@ -592,32 +590,27 @@ if ( curIsDaylightSave != previousIsDaylightSave )
 previousIsDaylightSave = curIsDaylightSave; 
 } 
 
-boolean begin_WiFi_STA()
+void begin_WiFi_STA()
 {
-boolean ret = false;  
 WiFi.mode(WIFI_STA);
 WiFi.softAPdisconnect(true);
 if ( wifiManuallySetAddresses ) { WiFi.config(wifiManuallySetIP, wifiManuallySetGW, wifiManuallySetSUBNET, wifiManuallySetDNS); }
-WiFi.begin(AP_name, AP_pass);
-delay(500);
-int ct = 60;
 #ifdef DEBUG 
  Serial.print(F("Connecting to "));
  Serial.println(AP_name);
 #endif
-while ( WiFi.status() != WL_CONNECTED && (ct > 0) )
+WiFi.begin(AP_name, AP_pass);
+unsigned long bt = millis();
+while ( millis() - bt < 60000UL )
  {
- yield(); delay(500); ct--;
- #ifdef DEBUG 
-  Serial.print(F("."));
- #endif
+ yield(); delay(0);
+ statusWiFi = (WiFi.status() == WL_CONNECTED);
+ if ( statusWiFi ) { break; }
  }
+log_Append(statusWiFi ? LOG_EVENT_WIFI_CONNECTION_SUCCESS : LOG_EVENT_WIFI_CONNECTION_ERROR); 
+previousstatusWiFi = statusWiFi; 
 #ifdef DEBUG 
- Serial.println();
-#endif
-ret = ( WiFi.status() == WL_CONNECTED );
-#ifdef DEBUG 
- if ( ret ) 
+ if ( statusWiFi ) 
   {
   Serial.print(F("Connected to    ")); Serial.println(AP_name);
   Serial.print(F("MAC address     ")); Serial.println(WiFi.macAddress());
@@ -629,7 +622,7 @@ ret = ( WiFi.status() == WL_CONNECTED );
   }
  else { Serial.println(F("Can't connect to WiFi.")); }
 #endif
-if ( !ret )
+if ( !statusWiFi )
  {
  #ifdef DEBUG 
   Serial.println(F("Going to access point mode after restart."));
@@ -641,6 +634,7 @@ if ( !ret )
  #endif
  EEPROM.write(ACCESS_POINT_SIGNATURE_EEPROM_ADDRESS, ACCESS_POINT_SIGNATURE); 
  EEPROM.commit();
+ log_Append(LOG_EVENT_RESTART_TO_AP_MODE); 
  ESP.restart(); 
  }
 if ( !WiFi.getAutoConnect() )
@@ -649,10 +643,9 @@ if ( !WiFi.getAutoConnect() )
  WiFi.setAutoReconnect(true);
  }
 WiFi.persistent(true);
-return ret;
 }
 
-boolean begin_WiFi_AP() 
+void begin_WiFi_AP() 
 {
 WiFi.mode(WIFI_AP);
 WiFi.softAP(APMODE_SSID, APMODE_PASSWORD);
@@ -664,7 +657,8 @@ WiFi.softAP(APMODE_SSID, APMODE_PASSWORD);
  Serial.print(APMODE_PASSWORD);
  Serial.println(F(" URL = http://192.168.4.1"));
 #endif
-return true;
+statusWiFi = true;
+previousstatusWiFi = statusWiFi; 
 }
 
 void ServerSendMessageAndRefresh( int interval = 0, String url = "/", String mess1 = "", String mess2 = "", String mess3 = "", String mess4 = "" )
@@ -3018,10 +3012,9 @@ if ( !AccessPointMode )
  checkFirmwareUpdated();
  getLastResetReason();
  RTCMEMread();
- statusWiFi = begin_WiFi_STA();
+ begin_WiFi_STA();
  }
-else { statusWiFi = begin_WiFi_AP(); }
-previousstatusWiFi = !statusWiFi;                   
+else { begin_WiFi_AP(); }
 if ( ipEmpty(wifiManuallySetIP) )     { wifiManuallySetIP = WiFi.localIP(); }
 if ( ipEmpty(wifiManuallySetGW) )     { wifiManuallySetGW = WiFi.gatewayIP(); }
 if ( ipEmpty(wifiManuallySetDNS) )    { wifiManuallySetDNS = WiFi.dnsIP(); }
