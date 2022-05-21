@@ -19,7 +19,7 @@
 //
 #include "Secrets.h"
 
-#define VERSION                             "22.520"
+#define VERSION                             "22.521"
 #define NTP_SERVER_NAME        "europe.pool.ntp.org" // default value for String ntpServerName
 #define MDNSHOST                                "VT" // mDNS host (+ ".local")
 #define APMODE_SSID                       "VT_SETUP" // SSID in AP mode
@@ -303,6 +303,7 @@ boolean ntpDaylightSave = true;
 boolean curIsDaylightSave = true;
 boolean previousIsDaylightSave = false;
 int ntpTimeZone = NTP_DEFAULT_TIME_ZONE;  // -11...12
+struct { uint32_t RTCMEMcrc32; time_t RTCMEMEpochTime; bool RTCMEMcurIsDaylightSave; } RTCMEMData;
 boolean Language = false;       // false - English, true - Russian
 boolean TaskListCollapsed = false;
 boolean ChannelListCollapsed = false;
@@ -396,6 +397,24 @@ if ( EEPROM.read(BUILD_HOUR_EEPROM_ADDRESS) != FW_H || EEPROM.read(BUILD_MIN_EEP
  }
 }
 
+void ntpTimeSynked() 
+{  
+bool appLog = !ntpTimeIsSynked;
+ntpTimeIsSynked = true;  
+ntpLastPollingSuccess = true;
+if ( !ntpDaylightSave ) { check_DaylightSave(); }
+if ( appLog || rtcmemTimeIsSynced ) 
+ { 
+ ntpGetTime(); 
+ log_Append(LOG_EVENT_NTP_TIME_SYNC_SUCCESS); 
+ rtcmemTimeIsSynced = false;
+ }
+ntpLastSynkedTimer = millis();
+#ifdef DEBUG 
+ Serial.println(F("NTP time is synked"));
+#endif
+}
+
 uint32_t calculateCRC32(const uint8_t *data, size_t length) 
 {
 uint32_t crc = 0xffffffff;
@@ -415,7 +434,6 @@ return crc;
 
 void RTCMEMread()
 {
-struct { uint32_t RTCMEMcrc32; time_t RTCMEMEpochTime; } RTCMEMData;
 #ifdef DEBUG 
  Serial.println(F("Read RTCMEM:"));
 #endif
@@ -425,6 +443,7 @@ if ( ESP.rtcUserMemoryRead(0, (uint32_t *)&RTCMEMData, sizeof(RTCMEMData)) )
  if ( crcOfRTCMEMEpochTime == RTCMEMData.RTCMEMcrc32 )
   {
   ntpcurEpochTime = RTCMEMData.RTCMEMEpochTime + (millis() / 1000) + 1;
+  curIsDaylightSave = RTCMEMData.RTCMEMcurIsDaylightSave;
   #ifdef DEBUG 
    Serial.println(F("CRC OK, set datetime from RTCMEM"));
   #endif
@@ -446,36 +465,20 @@ else
  }
 }
 
-void ntpTimeSynked() 
-{  
-bool appLog = !ntpTimeIsSynked;
-ntpTimeIsSynked = true;  
-ntpLastPollingSuccess = true;
-if ( appLog || rtcmemTimeIsSynced ) 
- { 
- ntpGetTime(); 
- log_Append(LOG_EVENT_NTP_TIME_SYNC_SUCCESS); 
- rtcmemTimeIsSynced = false;
- }
-ntpLastSynkedTimer = millis();
-#ifdef DEBUG 
- Serial.println(F("NTP time is synked"));
-#endif
-}
-
 void ntpGetTime() 
 {
 static unsigned long everySecondTimer = 0;  
 static bool writeErrorToLogOnlyOnce = false;
 if ( !ntpTimeIsSynked ) { return; }
 yield(); delay(1); yield();
-time(&ntpcurEpochTime); // get GMT0 epoch time (this function calls the NTP server every NTPPOLLINGNTERVAL ms)
+// get GMT0 epoch time (this function calls the NTP server every NTPPOLLINGNTERVAL ms)
+time(&ntpcurEpochTime);
 yield(); delay(1); yield();
 if ( millis() - everySecondTimer > 1000UL )
  {
- struct { uint32_t RTCMEMcrc32; time_t RTCMEMEpochTime; } RTCMEMData;
- RTCMEMData.RTCMEMEpochTime = ntpcurEpochTime;
+ RTCMEMData.RTCMEMEpochTime = ntpcurEpochTime; // GMT0 epoch time
  RTCMEMData.RTCMEMcrc32 = calculateCRC32((uint8_t *)&RTCMEMData.RTCMEMEpochTime, sizeof(RTCMEMData.RTCMEMEpochTime));
+ RTCMEMData.RTCMEMcurIsDaylightSave = curIsDaylightSave;
  if ( !ESP.rtcUserMemoryWrite(0, (uint32_t *)&RTCMEMData, sizeof(RTCMEMData)) )
   { 
   #ifdef DEBUG 
@@ -500,7 +503,7 @@ if ( millis() - ntpLastSynkedTimer > NTPPOLLINGNTERVAL + 60000 )
  }
 // convert GMT0 epoch time to local epoch time 
 ntpcurEpochTime = ntpcurEpochTime + (ntpTimeZone * 3600) + (curIsDaylightSave * 3600);
-ntpTimeInfo = gmtime(&ntpcurEpochTime); // converts local epoch time to tm structure
+ntpTimeInfo = gmtime(&ntpcurEpochTime); 
 }
 
 uint8_t calcOldChMode(int chNum)
@@ -3037,7 +3040,6 @@ if ( AccessPointMode ) { AccessPointModeTimer = millis(); }
 void loop()
 {
 yield(); delay(0);
-log_Append(LOG_POLLING);
 if ( AccessPointMode )
  {
  server.handleClient();
@@ -3077,4 +3079,5 @@ if ( millis() - everyHalfSecondTimer > 500UL )
  find_next_tasks();
  everyHalfSecondTimer = millis();
  }
+log_Append(LOG_POLLING);
 }
