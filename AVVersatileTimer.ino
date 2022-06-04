@@ -19,7 +19,7 @@
 //
 #include "Secrets.h"
 
-#define VERSION                             "22.521"
+#define VERSION                             "22.604"
 #define NTP_SERVER_NAME        "europe.pool.ntp.org" // default value for String ntpServerName
 #define MDNSHOST                                "VT" // mDNS host (+ ".local")
 #define APMODE_SSID                       "VT_SETUP" // SSID in AP mode
@@ -1300,9 +1300,13 @@ void drawWiFiSettings()
 String content = F("<hr>");
 String myBSSID = WiFi.BSSIDstr();
 String lip = wifiManuallySetIP.toString();
+if ( lip == "" ) { lip = "192.168.0.0"; }
 String dns = wifiManuallySetDNS.toString();
+if ( dns == "" ) { dns = "192.168.0.0"; }
 String gwy = wifiManuallySetGW.toString();
+if ( gwy == "" ) { gwy = "192.168.0.0"; }
 String net = wifiManuallySetSUBNET.toString();
+if ( net == "" ) { net = "255.255.255.0"; }
 int APtotalnumber = WiFi.scanNetworks();
 yield();
 if ( APtotalnumber > 0 )
