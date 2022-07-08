@@ -410,9 +410,6 @@ if ( appLog || rtcmemTimeIsSynced )
  rtcmemTimeIsSynced = false;
  }
 ntpLastSynkedTimer = millis();
-#ifdef DEBUG 
- Serial.println(F("NTP time is synked"));
-#endif
 }
 
 uint32_t calculateCRC32(const uint8_t *data, size_t length) 
@@ -1298,7 +1295,6 @@ yield();
 void drawWiFiSettings()
 {
 String content = F("<hr>");
-String myBSSID = WiFi.BSSIDstr();
 String lip = wifiManuallySetIP.toString();
 if ( lip == "" || lip == "(IP unset)" ) { lip = "192.168.0.0"; }
 String dns = wifiManuallySetDNS.toString();
@@ -1311,50 +1307,68 @@ int APtotalnumber = WiFi.scanNetworks();
 yield();
 if ( APtotalnumber > 0 )
  {
- int APdb[APtotalnumber];
- int APnum[APtotalnumber];
- String APBSSID[APtotalnumber];
+ struct AP
+  {
+  String ssid;
+  uint8_t enc;
+  int32_t rssi;
+  uint8_t* bssid;
+  int32_t ch;
+  bool hidden;
+  };
+ AP listAP[APtotalnumber];
+ AP tmp;
+ const uint8_t *myBSSID = WiFi.BSSID();
+ uint8_t targetBSSID[6];
+ for (byte i = 0; i < 6; i++) { targetBSSID[i] = *myBSSID++; }
  delay(10);
- for ( int i = 0; i < APtotalnumber; ++i ) 
+ for ( int i = 0; i < APtotalnumber; ++i )
   { 
-  APnum[i] = i; APdb[i] = WiFi.RSSI(i); APBSSID[i] = WiFi.BSSIDstr(i);
+  WiFi.getNetworkInfo(i, listAP[i].ssid, listAP[i].enc, listAP[i].rssi, listAP[i].bssid, listAP[i].ch, listAP[i].hidden);
   yield();
-  }
+  } 
  for (int i = 1; i < APtotalnumber; i++) // sorting on RSSI
   {
-  for (int j = i; j > 0 && (APdb[j-1] < APdb[j]); j--) 
+  for (int j = i; j > 0 && (listAP[j-1].rssi < listAP[j].rssi); j--) 
    {
-   int tmp = APdb[j-1];
-   APdb[j-1] = APdb[j];
-   APdb[j] = tmp;
-   tmp = APnum[j-1];
-   APnum[j-1] = APnum[j];
-   APnum[j] = tmp;
-   String tmpst = APBSSID[j-1];
-   APBSSID[j-1] = APBSSID[j];
-   APBSSID[j] = tmpst;
+   tmp = listAP[j-1];
+   listAP[j-1] = listAP[j];
+   listAP[j] = tmp;
+   yield();
    }
   }
  content += F("<form method='get' action='/wifisetting'><table><tr><td>");
  content += (Language ? F("Выберите точку доступа") : F("Select access point"));
  yield();
  String st = ":</td><td>";
+ boolean isMy = false;
  for (int i = 0; i < APtotalnumber; i++)
   {
-  if ( APdb[i] >= RSSI_THERESHOLD || APBSSID[i] == myBSSID )
+  isMy = ( listAP[i].bssid[0] == targetBSSID[0] && listAP[i].bssid[1] == targetBSSID[1] 
+        && listAP[i].bssid[2] == targetBSSID[2] && listAP[i].bssid[3] == targetBSSID[3]
+        && listAP[i].bssid[4] == targetBSSID[4] && listAP[i].bssid[5] == targetBSSID[5] );  
+  if ( listAP[i].rssi >= RSSI_THERESHOLD || isMy )
    { 
    if ( i > 0 ) { st += F("</td> <td>"); }
-   st += ( APBSSID[i] == myBSSID ? F("<b>") : F("") );
+   st += ( isMy ? F("<b>") : F("") );
    st += F("<input name='ssid' type='radio' value='");
-   st += WiFi.SSID(APnum[i]);
+   st += String(listAP[i].ssid);
    st += F("'");
-   st += ( APBSSID[i] == myBSSID ? F(" checked") : F("") );
+   st += ( isMy ? F(" checked") : F("") );
    st += F("> ");
-   st += WiFi.SSID(APnum[i]);
+   st += String(listAP[i].ssid);
+   st += ( isMy ? F("</b>") : F("") );
    st += F(" (");
-   st += String(APdb[i]);
-   st += F("db)</td></tr><tr><td>");
-   st += ( APBSSID[i] == myBSSID ? F("</b>") : F("") );
+   st += String(listAP[i].rssi);
+   st += F("db, ");
+   st += String(listAP[i].ch);
+   st += F("ch");
+   st += (listAP[i].enc == ENC_TYPE_NONE ? ", *open" : "");
+   st += (listAP[i].enc == ENC_TYPE_WEP ? ", WEP" : "");
+   //st += (listAP[i].enc == ENC_TYPE_TKIP ? "WPA/PSK" : "");
+   //st += (listAP[i].enc == ENC_TYPE_CCMP ? "WPA2/PSK" : "");
+   //st += (listAP[i].enc == ENC_TYPE_AUTO ? "WPA/WPA2/PSK" : "");
+   st += F(")</td></tr><tr><td>");
    }
   yield();
   }
@@ -1394,6 +1408,7 @@ content += (Language ? F("Сохранить и перезагрузить") : F
 content += F("'></form></td></tr></table>");
 server.sendContent(content); content = "";
 yield(); 
+WiFi.scanDelete();
 }
 
 void drawFilesSettings()
