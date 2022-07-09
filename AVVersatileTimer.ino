@@ -19,7 +19,7 @@
 //
 #include "Secrets.h"
 
-#define VERSION                             "22.607"
+#define VERSION                             "22.709"
 #define NTP_SERVER_NAME        "europe.pool.ntp.org" // default value for String ntpServerName
 #define MDNSHOST                                "VT" // mDNS host (+ ".local")
 #define APMODE_SSID                       "VT_SETUP" // SSID in AP mode
