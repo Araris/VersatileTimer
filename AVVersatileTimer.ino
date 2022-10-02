@@ -684,34 +684,7 @@ Dir dir = LittleFS.openDir("/");
 int ret = 0;
 while ( dir.next() )
  {
- if ( dir.isFile() )
-  {
-  if ( dir.fileSize() )
-   {
-   File f = dir.openFile("r");
-   if ( f ) { ret++; f.close(); }
-   }
-  } 
- yield();
- }
-return ret; 
-}
-
-int calcLOGfiles()
-{
-if ( !littleFS_OK ) { return 0; }
-Dir dir = LittleFS.openDir(LOG_DIR);
-int ret = 0;
-while ( dir.next() )
- {
- if ( dir.isFile() )
-  {
-  if ( dir.fileSize() )
-   {
-   File f = dir.openFile("r");
-   if ( f ) { ret++; f.close(); }
-   }
-  } 
+ if ( dir.isFile() && dir.fileSize() ) { ret++; } 
  yield();
  }
 return ret; 
@@ -866,7 +839,6 @@ return fs_info.usedBytes;
 
 void drawHeader(byte index) // 0 - homepage, 1 - logview page, 2 - access point page
 {
-numLOGfiles = calcLOGfiles();
 numCFGfiles = calcCFGfiles();
 String content = F("<link rel='shortcut icon' href='data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAQAQAAAAAAAAAAAAAAAAAAAAAAADCt6pgwrep/cK4qv/CuKr/wriq/8K4qv/CuKr/wriq/8K4qv/CuKr/wriq/8K4qv/CuKr/wriq/8K3qf3DuaxiwrmqisK4qv/CuKr/wriq/8K4qv/CuKr/vrSm/7WrnP+1q5z/vrSm/8K4qv/CuKr/wriq/8K4qv/CuKr/w7ipjMK5qorCuKr/wriq/8K4qv+zqZr/kYd4/5CHev+ln5T/pZ+U/5CHev+Rh3j/s6ma/8K4qv/CuKr/wriq/8O4qYzCuaqKwriq/8K4qv+jmYv/lo6C/9/d2f//////t7Wz/7e1s///////393Z/5aOgv+jmYv/wriq/8K4qv/DuKmMwrmqisK4qv+qoJH/npaL/6Cem//8/Pv//////9/f3v/f397///////z8+/+gnpv/npaL/6qgkf/CuKr/w7ipjMK5qoq/tab/i4Jz//Py8P+fnZr/7ezs///////////////////////t7Ov/n52a//Py8P+LgnP/v7Wm/8O4qYzCuaqKqZ+R/7awqP//////////////////////////////////////////////////////trCo/6mfkf/DuKmMwrmqipqQgv/X1M///////////////////////////////////////////////////////9fUz/+akIL/w7ipjMK5qoqWjH3/tbKu/1tYU///////+fj+/7ev8v9oVuP/xb70/////////////////1tYU/+1sq7/lox9/8K5q4vCt6t5m5GD/9XSzf/9/f7/npPt/1xI4f+RhOv/4d75////////////////////////////1dLN/5uRg//Ct6t5wrqrQ6uhk/+xq6H//fz+/7mx8v/z8v3//////////////////////////////////////7Grof+roZP/wrqrQ7+/vwS/tqfiioFy/+3s6f+IhoL/6urp///////////////////////q6un/iIaC/+3s6f+KgXL/v7an4r+/vwQAAAAAw7iqXa+llv+WjoL/sa+s//7+/v//////1dTT/9XU0////////v7+/7GvrP+WjoL/r6WW/8O4ql0AAAAAAAAAAAAAAADDuauYqqCS/4+Gef/Rzsn/+/v7/8HAvv/BwL7/+/v7/9HOyf+Phnn/qqCS/8O5q5gAAAAAAAAAAAAAAAAAAAAAgICAAsG3qYC5rqD6mY+A/4l/cf+Xj4P/l4+D/4l/cf+Zj4D/ua6g+sG3qYCAgIACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw7WoJsO5q5HBuKrXvLKk+byypPnBuKrXw7mrkcO1qCYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==' />");
 content += F("<head><title>");
@@ -926,24 +898,20 @@ if ( index == 0 )
 else if ( index == 1 )
  {
  Dir dir = LittleFS.openDir(LOG_DIR);
- File f;
+ numLOGfiles = 0;
  log_CurDate = F("00000000"); 
  log_MinDate = F("99999999");
  log_MaxDate = F("00000000");
  while ( dir.next() )
   {
-  if ( dir.fileSize() )
+  if ( dir.isFile() && dir.fileSize() )
    {
-   f = dir.openFile("r");
-   if ( f ) 
-    {
-    log_CurDate = dir.fileName();
-    if ( log_CurDate.compareTo(log_MaxDate) > 0 ) { log_MaxDate = log_CurDate; }
-    if ( log_CurDate.compareTo(log_MinDate) < 0 ) { log_MinDate = log_CurDate; }
-    f.close();
-    }
-   yield();
+   log_CurDate = dir.fileName();
+   if ( log_CurDate.compareTo(log_MaxDate) > 0 ) { log_MaxDate = log_CurDate; }
+   if ( log_CurDate.compareTo(log_MinDate) < 0 ) { log_MinDate = log_CurDate; }
+   numLOGfiles++;
    }
+  yield();
   }
  content += (Language ? F("Журнал на ") : F("Log for "));
  content += String(log_Day) + F(".");
