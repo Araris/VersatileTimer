@@ -60,7 +60,6 @@ With Multicast DNS (mDNS) available as host vt.local.
 ![WEB-InterfaceE01](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceE01.jpg?raw=true)
 ![WEB-InterfaceE02](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceE02.jpg?raw=true)
 ![WEB-InterfaceE03](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceE03.jpg?raw=true)
-![WEB-InterfaceE04](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceE04.jpg?raw=true)
 
 Connection diagram for ESP-01 (one channel) :
 ![AVVersatileTimer_ESP-01](https://github.com/Araris/VersatileTimer/blob/main/AVVersatileTimer_ESP-01.jpg?raw=true)
@@ -131,7 +130,6 @@ It is recommended to add RC filters to the control GPIOs to prevent unwanted swi
 ![WEB-InterfaceR01](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR01.jpg?raw=true)
 ![WEB-InterfaceR02](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR02.jpg?raw=true)
 ![WEB-InterfaceR03](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR03.jpg?raw=true)
-![WEB-InterfaceR04](https://github.com/Araris/VersatileTimer/blob/main/WEB-InterfaceR04.jpg?raw=true)
 
 Схема подключения для ESP-01 (один канал) :
 ![AVVersatileTimer_ESP-01](https://github.com/Araris/VersatileTimer/blob/main/AVVersatileTimer_ESP-01.jpg?raw=true)
