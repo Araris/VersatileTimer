@@ -24,7 +24,10 @@ Channel management is possible by tasks, manually until the next task, only manu
   - manually until the next task and only manually - after a power failure, the last channel state is restored;
   - by tasks - after a power failure, the state is set in which the channel should be in accordance with the task settings for the current day of the week and time of day;
 
+Device power outage tracking.
+
 Keeping event logs for a specified number of days.
+Calculation and output of the total active state time on control channels for a period of dates.
 
 Ability to save / restore all settings to files on the ESP8266, upload / download files via the web interface.
 
@@ -91,7 +94,10 @@ It is recommended to add RC filters to the control GPIOs to prevent unwanted swi
   - вручную до следующего задания и только вручную - после пропадания питания восстанавливается последнее состояние канала;
   - по заданиям - после пропадания питания устанавливается состояние, в котором канал должен находиться согласно настройкам заданий для текущего дня недели и времени суток;
 
+Отслеживание выключений и пропаданий питания устройства.
+
 Ведение журналов событий за указанное количество дней. 
+Подсчет и вывод общего времени активного состояния по каналам управления за период дат. 
 
 Возможность сохранения / восстановления всех настроек в файлы на ESP8266, загрузка / выгрузка файлов через веб-интерфейс.
 

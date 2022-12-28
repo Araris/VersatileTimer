@@ -1,7 +1,10 @@
 // Tested on Arduino IDE 1.8.16
 // Tested on NodeMCU 1.0 (ESP-12E Module) and on Generic ESP8266 Module
 
-//#define DEBUG 1
+//#define DEBUG                                      1
+
+#define DEBUGRINGCOUNTER                       false
+#define VERSION                            "22.1218"
 
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
@@ -9,22 +12,22 @@
 #include <ESP8266HTTPUpdateServer.h>
 #include <ESP8266mDNS.h>
 #include <EEPROM.h>
+#include <EEPROMRingCounter.h>
 #include <LittleFS.h>   // https://github.com/esp8266/Arduino/tree/master/libraries/LittleFS
 #include <coredecls.h>  // source of settimeofday_cb();
 //
+#include "Secrets.h"
 // Create a Secrets.h file with Wi-Fi connection settings as follows:
-//
 //   #define AP_SSID   "yourSSID"
 //   #define AP_PASS   "yourPASSWORD"
 //
-#include "Secrets.h"
-
-#define VERSION                             "22.709"
-#define NTP_SERVER_NAME        "europe.pool.ntp.org" // default value for String ntpServerName
 #define MDNSHOST                                "VT" // mDNS host (+ ".local")
-#define APMODE_SSID                       "VT_SETUP" // SSID in AP mode
-#define APMODE_PASSWORD                  "319319319" // password in AP mode
+#define APMODE_SSID                       "VT_SETUP" // AP SSID in AP mode
+#define APMODE_PASSWORD                  "319319319" // AP password in AP mode
+#define DEFAULT_LOGIN_NAME                   "admin"
+#define DEFAULT_LOGIN_PASSWORD               "admin"
 /////////////////////////////////////////////////////// EEPROM map BEGIN
+#define EEPROMSIZE                              4096
 #define FIRST_RUN_SIGNATURE_EEPROM_ADDRESS         0 // byte FIRST_RUN_SIGNATURE
 #define ACCESS_POINT_SIGNATURE_EEPROM_ADDRESS      1 // byte ACCESS_POINT_SIGNATURE
                                                //  2 // not used
@@ -38,7 +41,7 @@
 #define NTP_TIME_ZONE_EEPROM_ADDRESS              11 // byte 1...24 (int ntpTimeZone + 12)
 #define NUMBER_OF_CHANNELS_EEPROM_ADDRESS         12 // byte numberOfChannels
 #define NTP_DAYLIGHTSAVEZONE_EEPROM_ADDRESS       13 // byte ntpDaylightSaveZone
-#define NTP_DAYLIGHTSAVE_EEPROM_ADDRESS           14 // boolean ntpDaylightSave
+#define NTP_DAYLIGHT_SAVING_ENABLED_ADDRESS       14 // boolean ntpAutoDaylightSavingEnabled
 #define WIFI_MANUALLY_SET_EEPROM_ADDRESS          15 // boolean wifiManuallySetAddresses  0-use DHCP, 1-fixed addresses
 #define LOGIN_NAME_EEPROM_ADDRESS                 16 // 16..26 - String loginName (max 10 chars)
 #define LOGIN_PASS_EEPROM_ADDRESS                 27 // 27..39 - String loginPass (max 12 chars)
@@ -51,15 +54,22 @@
 #define TASKLIST_EEPROM_ADDRESS                  100 // 100..700 - byte TaskList from TASKLIST_EEPROM_ADDRESS to TASKLIST_EEPROM_ADDRESS + numberOfTasks * (TASK_NUM_ELEMENTS - 1)
 #define AP_SSID_EEPROM_ADDRESS                   701 // 701..764 - String AP_name (max 63 chars)
 #define AP_PASS_EEPROM_ADDRESS                   765 // 765..797 - String AP_pass (max 32 chars)
-#define NTP_TIME_SERVER_EEPROM_ADDRESS           798 // 798..830 - String ntpServerName (max 32 chars)
+#define NTP_TIME_SERVER1_EEPROM_ADDRESS          798 // 798..830 - String ntpServerName1 (max 32 chars)
 #define WIFI_MANUALLY_SET_IP_EEPROM_ADDRESS      831 // 831..834 - IPAddress wifiManuallySetIP
 #define WIFI_MANUALLY_SET_DNS_EEPROM_ADDRESS     835 // 835..838 - IPAddress wifiManuallySetDNS
 #define WIFI_MANUALLY_SET_GW_EEPROM_ADDRESS      839 // 839..842 - IPAddress wifiManuallySetGW
 #define WIFI_MANUALLY_SET_SUBNET_EEPROM_ADDRESS  843 // 843..846 - IPAddress wifiManuallySetSUBNET
+#define NTP_TIME_SERVER2_EEPROM_ADDRESS          847 // 847..880 - String ntpServerName2 (max 32 chars)
 #define MAX_EEPROM_ADDRESS                       900 // total amount EEPROM used
+#define RINGCOUNTER_FIRST_ADDRESS               1024
+#define RINGCOUNTER_NUM_CELLS                     60 // i.e. last address = 1024 + 60 * 4 = 1264
+#define RINGCOUNTER_SAVE_PERIOD              60000UL // let each cell be overwritten once per hour (8760 rewrites per year)
 /////////////////////////////////////////////////////// EEPROM map END
-#define NTP_DEFAULT_TIME_ZONE                      2
-#define NTPPOLLINGNTERVAL                  3600000UL
+#define WIFICONNECTIONTRYPERIOD             600000UL // msec
+#define NTP_SERVER_NAME        "europe.pool.ntp.org" // default value
+#define NTP_DEFAULT_TIME_ZONE                      2 // default value
+#define NTP_POLLING_INTERVAL               3600000UL
+#define NTP_MINIMUM_EPOCHTIME           1669000000UL
 #define FIRST_RUN_SIGNATURE                      139 // signature to detect first run on the device and prepare EEPROM (max 255)
 #define ACCESS_POINT_SIGNATURE                   138 // signature to set AccessPointMode after start
 #define FW_H_0                   (__TIME__[0] - '0')
@@ -114,6 +124,7 @@
 #define LOG_VIEWSTEP_MIN                           5
 #define LOG_VIEWSTEP_MAX                          50
 #define LOG_POLLING                              255
+//
 #define LOG_EVENT_START                            0
 #define LOG_EVENT_TASK_SWITCHING_MANUALLY          1
 #define LOG_EVENT_TASK_SWITCHING_BY_TASK           2
@@ -161,78 +172,94 @@
 #define LOG_EVENT_RTCMEM_TIME_SYNC_SUCCESS        44
 #define LOG_EVENT_RTCMEM_READ_ERROR               45
 #define LOG_EVENT_RTCMEM_WRITE_ERROR              46
+#define LOG_EVENT_NEWDAYLOG_CREATED               47
+#define LOG_EVENT_POWER_OFF                       48
+#define LOG_EVENT_DAYLOG_FILE_DOWNLOAD            49
+//
+#define NAMESOFEVENTSMAXNUMBER                    50
+const String namesOfEvents[][NAMESOFEVENTSMAXNUMBER] = 
+  {{"Start"
+   ,"Manual <b>switching</b>","<b>Switching</b> by task"
+   ,"manually","until next task","by tasks"
+   ,"Daylight saving ON","Daylight saving OFF"
+   ,"Doing restart to access point mode"
+   ,"Task settings changed","Channel settings changed"
+   ,"Number of tasks changed","Number of channels changed"
+   ,"Interface language changed"
+   ,"Time Zone changed","Auto daylight saving time changed"
+   ,"Daylight saving time zone changed","Time synchronization server changed"
+   ,"Login name changed","Login password changed"
+   ,"Wifi settings changed"
+   ,"Settings saved to file","Settings restored from file","Settings file renamed"
+   ,"Settings file deleted","Settings file downloaded","Settings file uploaded"
+   ,"Firmware updated","Tasklist cleared","Doing manual restart"
+   ,"Log entries per page changed","Number of days to keep the log changed"
+   ,"Time synchronization <font color='red'>error</font> (NTP)"
+   ,"Time synchronization successful (NTP)"
+   ,"<font color='red'>No</font> Wi-Fi connection"
+   ,"Connected to Wi-Fi"
+   ,"Normal startup by power on"
+   ,"Restart after hardware watch dog reset"
+   ,"Restart after exception reset"
+   ,"Restart after software watch dog reset"
+   ,"Restart after software restart"
+   ,"Wake up from deep-sleep"
+   ,"Power on or external system reset"
+   ,"Restart (reason unknown)"   
+   ,"Time synchronization successful (RTCMEM)"
+   ,"RTCMEM read <font color='red'>error</font>"
+   ,"RTCMEM write <font color='red'>error</font>"
+   ,"Start of daylog"
+   ,"<font color='red'>Power supply has been turned off</font>"
+   ,"Daylog file downloaded"
+   },
+   {"Старт"
+   ,"<b>Переключение</b> вручную","<b>Переключение</b> по заданию"
+   ,"вручную","до след. задания","по заданиям"
+   ,"Летнее время активно","Зимнее время активно"
+   ,"Перезагрузка в режим точки доступа"
+   ,"Настройки задания изменены","Настройки канала изменены"
+   ,"Количество заданий изменено","Количество каналов изменено"
+   ,"Язык интерфейса изменен"
+   ,"Часовой пояс изменен","Автопереход на летнее-зимнее время изменен"
+   ,"Зона перехода на летнее-зимнее время изменена","Сервер синхронизации времени изменен"
+   ,"Имя авторизации изменено","Пароль авторизации изменен"
+   ,"Настройки Wi-Fi изменены"
+   ,"Настройки сохранены в файл","Настройки восстановлены из файла","Файл настроек переименован"
+   ,"Файл настроек удален","Файл настроек выгружен","Файл настроек загружен"
+   ,"Прошивка обновлена","Список заданий очищен","Ручная перезагрузка"
+   ,"Количество записей журнала на странице изменено","Количество дней хранения журнала изменено"
+   ,"<font color='red'>Ошибка</font> синхронизации времени (NTP)"
+   ,"Синхронизация времени успешна (NTP)"
+   ,"Подключение к Wi-Fi <font color='red'>отсутствует</font>"
+   ,"Подключено к Wi-Fi"
+   ,"Начало работы (подача питания)"
+   ,"Перезагрузка аппаратным сторожевым таймером"
+   ,"Перезагрузка после сброса по исключению"
+   ,"Перезагрузка программным сторожевым таймером"
+   ,"Программная перезагрузка"
+   ,"Пробуждение из режима глубокого сна"
+   ,"Включение питания, или внешний сброс системы"
+   ,"Перезагрузка (причина неизвестна)"   
+   ,"Синхронизация времени успешна (RTCMEM)"
+   ,"RTCMEM <font color='red'>ошибка</font> чтения"
+   ,"RTCMEM <font color='red'>ошибка</font> записи"
+   ,"Начало журнала"
+   ,"<font color='red'>Подача питания была отключена</font>"
+   ,"Файл журнала выгружен"
+   }};
 //                    GPIO      0     1    2    3    4    5     6     7     8     9    10    11   12   13   14   15   16
 const String NodeMCUpins[] = {"D3","D10","D4","D9","D2","D1","N/A","N/A","N/A","D11","D12","N/A","D6","D7","D5","D8","D0"};
 const String namesOfDays[][10] = {{"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Workdays","Weekends","Every day"},
                                   {"Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Рабочие дни","Выходные дни","Каждый день"}};
-const String namesOfEvents[][47] = {{"Start"
-                                    ,"Manual <b>switching</b>","<b>Switching</b> by task"
-                                    ,"manually","until next task","by tasks"
-                                    ,"Daylight saving ON","Daylight saving OFF"
-                                    ,"Doing restart to access point mode"
-                                    ,"Task settings changed","Channel settings changed"
-                                    ,"Number of tasks changed","Number of channels changed"
-                                    ,"Interface language changed"
-                                    ,"Time Zone changed","Auto daylight saving time changed"
-                                    ,"Daylight saving time zone changed","Time synchronization server changed"
-                                    ,"Login name changed","Login password changed"
-                                    ,"Wifi settings changed"
-                                    ,"Settings saved to file","Settings restored from file","Settings file renamed"
-                                    ,"Settings file deleted","Settings file downloaded","Settings file uploaded"
-                                    ,"Firmware updated","Tasklist cleared","Doing manual restart"
-                                    ,"Log entries per page changed","Number of days to keep the log changed"
-                                    ,"Time synchronization <font color='red'>error</font> (NTP)"
-                                    ,"Time synchronization successful (NTP)"
-                                    ,"<font color='red'>No</font> Wi-Fi connection"
-                                    ,"Connected to Wi-Fi"
-                                    ,"Normal startup by power on"
-                                    ,"Restart after hardware watch dog reset"
-                                    ,"Restart after exception reset"
-                                    ,"Restart after software watch dog reset"
-                                    ,"Restart after software restart"
-                                    ,"Wake up from deep-sleep"
-                                    ,"Power on or external system reset"
-                                    ,"Restart (reason unknown)"                                    
-                                    ,"Time synchronization successful (RTCMEM)"
-                                    ,"RTCMEM read <font color='red'>error</font>"
-                                    ,"RTCMEM write <font color='red'>error</font>"
-                                    },
-                                    {"Старт"
-                                    ,"<b>Переключение</b> вручную","<b>Переключение</b> по заданию"
-                                    ,"вручную","до след. задания","по заданиям"
-                                    ,"Летнее время активно","Зимнее время активно"
-                                    ,"Перезагрузка в режим точки доступа"
-                                    ,"Настройки задания изменены","Настройки канала изменены"
-                                    ,"Количество заданий изменено","Количество каналов изменено"
-                                    ,"Язык интерфейса изменен"
-                                    ,"Часовой пояс изменен","Автопереход на летнее-зимнее время изменен"
-                                    ,"Зона перехода на летнее-зимнее время изменена","Сервер синхронизации времени изменен"
-                                    ,"Имя авторизации изменено","Пароль авторизации изменен"
-                                    ,"Настройки Wi-Fi изменены"
-                                    ,"Настройки сохранены в файл","Настройки восстановлены из файла","Файл настроек переименован"
-                                    ,"Файл настроек удален","Файл настроек выгружен","Файл настроек загружен"
-                                    ,"Прошивка обновлена","Список заданий очищен","Ручная перезагрузка"
-                                    ,"Количество записей журнала на странице изменено","Количество дней хранения журнала изменено"
-                                    ,"<font color='red'>Ошибка</font> синхронизации времени (NTP)"
-                                    ,"Синхронизация времени успешна (NTP)"
-                                    ,"Подключение к Wi-Fi <font color='red'>отсутствует</font>"
-                                    ,"Подключено к Wi-Fi"
-                                    ,"Начало работы (подача питания)"
-                                    ,"Перезагрузка аппаратным сторожевым таймером"
-                                    ,"Перезагрузка после сброса по исключению"
-                                    ,"Перезагрузка программным сторожевым таймером"
-                                    ,"Программная перезагрузка"
-                                    ,"Пробуждение из режима глубокого сна"
-                                    ,"Включение питания, или внешний сброс системы"
-                                    ,"Перезагрузка (причина неизвестна)"                                    
-                                    ,"Синхронизация времени успешна (RTCMEM)"
-                                    ,"RTCMEM <font color='red'>ошибка</font> чтения"
-                                    ,"RTCMEM <font color='red'>ошибка</font> записи"
-                                    }};
 const uint8_t monthDays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
 //
+String loginName;
+String loginPass;
 ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
+EEPROMRingCounter RingCounter(RINGCOUNTER_FIRST_ADDRESS, RINGCOUNTER_NUM_CELLS, DEBUGRINGCOUNTER);
+unsigned long RingCounterSaveTimer = 0;
 //
 struct Log_Data
  {
@@ -268,13 +295,12 @@ int log_StartRecord;
 int log_Day = 0;
 int log_Month = 0;
 int log_Year = 0;
-time_t log_today = 0;
 File log_FileHandle;
 File uploadFileHandle;
 char log_curPath[32];
+String logstat_BegDate = "";
+String logstat_EndDate = "";
 //
-String loginName; // default "admin"
-String loginPass; // default "admin"
 byte numberOfTasks; // TASKLIST_MIN_NUMBER...TASKLIST_MAX_NUMBER
 bool thereAreEnabledTasks = false;
 uint8_t** TaskList;
@@ -293,13 +319,19 @@ uint8_t** ChannelList;
                                 // 1 - 0...1 - channel controls noninverted/inverted
                                 // 2 - 0...1 - channel last saved state
                                 // 3 - 0...1 - channel enabled
+struct LastChannelsStates
+ {
+ uint8_t  firstpart;   // each of bits corresponds to the status of channel 0...7
+ uint8_t  lastpart;    // each of bits corresponds to the status of channel 8...15
+ };
 byte ActiveNowTasksList[CHANNELLIST_MAX_NUMBER];  
 byte NextTasksList[CHANNELLIST_MAX_NUMBER];
 byte NumEnabledTasks[CHANNELLIST_MAX_NUMBER];                         
 int counterOfReboots = 0; 
-String ntpServerName = "";
+String ntpServerName1 = "";
+String ntpServerName2 = "";
 byte ntpDaylightSaveZone = 0; // 0 - EU, 1 - USA
-boolean ntpDaylightSave = true;
+boolean ntpAutoDaylightSavingEnabled = true;
 boolean curIsDaylightSave = true;
 boolean previousIsDaylightSave = false;
 int ntpTimeZone = NTP_DEFAULT_TIME_ZONE;  // -11...12
@@ -307,11 +339,13 @@ struct { uint32_t RTCMEMcrc32; time_t RTCMEMEpochTime; bool RTCMEMcurIsDaylightS
 boolean Language = false;       // false - English, true - Russian
 boolean TaskListCollapsed = false;
 boolean ChannelListCollapsed = false;
-time_t ntpcurEpochTime;
+time_t ntpcurEpochTime = 0;
+time_t lastPowerOff = 0;
 struct tm *ntpTimeInfo;
 bool ntpTimeIsSynkedFirst = true;
 bool ntpTimeIsSynked = false;
 bool rtcmemTimeIsSynced = false;
+bool isSoftRestart = false;
 bool ntpLastPollingSuccess = false;
 unsigned long ntpLastSynkedTimer = 0;
 bool statusWiFi = false;
@@ -321,39 +355,407 @@ unsigned long everyHalfSecondTimer = 0;
                                
 /////////////////////////////////////////////////////////
 
-uint32_t sntp_update_delay_MS_rfc_not_less_than_15000() { return NTPPOLLINGNTERVAL; }
+uint32_t sntp_update_delay_MS_rfc_not_less_than_15000() { return NTP_POLLING_INTERVAL; }
+
+time_t DateOfDateTime(time_t dt) { return (dt / SECS_PER_DAY * SECS_PER_DAY); } // remove the time part
+
+void saveGMTtimeToRingCounter()
+{
+if ( !ntpTimeIsSynked ) { return; }
+time_t GMT0epochtime;
+time(&GMT0epochtime);
+if ( GMT0epochtime > NTP_MINIMUM_EPOCHTIME
+  && GMT0epochtime > lastPowerOff - (ntpTimeZone * 3600) - (curIsDaylightSave * 3600) )
+ {
+ RingCounter.set(GMT0epochtime);
+ lastPowerOff = GMT0epochtime + (ntpTimeZone * 3600) + (curIsDaylightSave * 3600); // back to GMT0
+ }
+}
+
+boolean log_getdaystat(time_t date, long *daystatarray, bool clearArray = true) // long daystatarray[numberOfChannels]
+{
+time_t prevUTC[numberOfChannels];
+time_t curUTC[numberOfChannels];
+boolean prevState[numberOfChannels];
+boolean curState[numberOfChannels];
+if ( clearArray )
+ { for ( int chNum = 0; chNum < numberOfChannels; chNum++ ) { daystatarray[chNum] = 0; } }
+for ( int chNum = 0; chNum < numberOfChannels; chNum++ ) 
+ { prevUTC[chNum] = 0; prevState[chNum] = 0; curUTC[chNum] = 0; curState[chNum] = 0; }
+if ( ntpcurEpochTime < NTP_MINIMUM_EPOCHTIME ) { return false; } 
+date = DateOfDateTime(date);
+time_t today = DateOfDateTime(ntpcurEpochTime);
+struct Log_Data rl;
+char path[32];
+log_pathFromDate(path, date);
+if ( !LittleFS.exists(path) ) { return false; }
+File fileHandle = LittleFS.open(path, "r");
+#ifdef DEBUG
+ Serial.println();
+ Serial.println(F("---BEGIN read stat."));
+#endif
+if ( !fileHandle ) { fileHandle.close(); return false; }
+// read first daylog record
+if ( log_readRow(&rl, 0, fileHandle) )
+ {
+ if ( rl.event == LOG_EVENT_NEWDAYLOG_CREATED )
+  {
+  #ifdef DEBUG
+   Serial.print(F("1 NEWDAYLOG_CREATED "));
+  #endif 
+  for ( byte i = 0; i < numberOfChannels; i++ )
+   {
+   prevUTC[i] = rl.utc;
+   curUTC[i] = rl.utc;
+   if ( i < 8 ) { prevState[i] = bitRead(rl.ch, i); } else { prevState[i] = bitRead(rl.task, i - 8); }
+   #ifdef DEBUG
+    Serial.print(F("CH"));
+    Serial.print(i + 1);
+    Serial.print(F("="));
+    Serial.print(prevState[i]);
+    Serial.print(F(" "));
+   #endif 
+   }
+  #ifdef DEBUG
+   Serial.println();
+  #endif 
+  }
+ else
+  {
+  #ifdef DEBUG
+   Serial.println(F("! First record is not LOG_EVENT_NEWDAYLOG_CREATED !"));
+  #endif
+  fileHandle.close();
+  return false;
+  }
+ }
+else
+ {
+ #ifdef DEBUG
+  Serial.println(F("! log_readRow returns false !"));
+ #endif
+ fileHandle.close();
+ return false;
+ }
+int numrec = fileHandle.size() / sizeof(Log_Data); 
+int currec = 1;
+// read next daylog records
+while ( log_readRow(&rl, currec, fileHandle) )
+ { 
+ if ( rl.event == LOG_EVENT_POWER_OFF
+   || rl.event == LOG_EVENT_START
+   || rl.event == LOG_EVENT_TASK_SWITCHING_MANUALLY 
+   || rl.event == LOG_EVENT_TASK_SWITCHING_BY_TASK )
+  {
+  if ( rl.event == LOG_EVENT_POWER_OFF )
+   {
+   #ifdef DEBUG
+    Serial.print(currec + 1);
+    Serial.print(F(" POWER_OFF "));
+   #endif 
+   for ( byte i = 0; i < numberOfChannels; i++ )
+    {
+    curState[i] = false;
+    if ( curState[i] != prevState[i] ) { curUTC[i] = rl.utc; }
+    #ifdef DEBUG
+     Serial.print(F("CH"));
+     Serial.print(i + 1);
+     Serial.print(F("="));
+     Serial.print(curState[i]);
+     Serial.print(F("("));
+     Serial.print(prevState[i]);
+     Serial.print(F(") "));
+    #endif 
+    }    
+   #ifdef DEBUG
+    Serial.println();
+   #endif 
+   }
+  else if ( rl.event == LOG_EVENT_START )
+   {
+   #ifdef DEBUG
+    Serial.print(currec + 1);
+    Serial.print(F(" START "));
+   #endif 
+   for ( byte i = 0; i < numberOfChannels; i++ )
+    {
+    if ( i < 8 ) { curState[i] = bitRead(rl.ch, i); } else { curState[i] = bitRead(rl.task, i - 8); }
+    if ( curState[i] != prevState[i] ) { curUTC[i] = rl.utc; }
+    #ifdef DEBUG
+     Serial.print(F("CH"));
+     Serial.print(i + 1);
+     Serial.print(F("="));
+     Serial.print(curState[i]);
+     Serial.print(F(" "));
+    #endif 
+    }    
+   #ifdef DEBUG
+    Serial.println();
+   #endif 
+   }
+  else if ( rl.event == LOG_EVENT_TASK_SWITCHING_MANUALLY 
+         || rl.event == LOG_EVENT_TASK_SWITCHING_BY_TASK )
+   {
+   curState[rl.ch] = rl.act;
+   if ( curState[rl.ch] != prevState[rl.ch] ) { curUTC[rl.ch] = rl.utc; }
+   #ifdef DEBUG
+    Serial.print(currec + 1);
+    Serial.print(F(" SWITCHING "));
+    Serial.print(F("CH"));
+    Serial.print(rl.ch + 1);
+    Serial.print(F("="));
+    Serial.print(curState[rl.ch]);
+    Serial.print(F("("));
+    Serial.print(prevState[rl.ch]);
+    Serial.println(F(") "));
+   #endif
+   }
+  for ( byte i = 0; i < numberOfChannels; i++ )
+   { 
+   if ( prevState[i] && !curState[i] )
+    {
+    daystatarray[i] += curUTC[i] - prevUTC[i];
+    #ifdef DEBUG
+     Serial.print(F("CH"));
+     Serial.print(i + 1);
+     Serial.print(F(" added "));
+     Serial.println(convertMStoDHMS((curUTC[i] - prevUTC[i]) * 1000UL));
+    #endif
+    }
+   prevState[i] = curState[i]; 
+   prevUTC[i] = curUTC[i];
+   }
+  }
+ currec++;
+ if ( currec == numrec ) { break; }
+ yield();
+ }
+fileHandle.close();
+yield();
+#ifdef DEBUG
+ Serial.println(F("---stat before last record"));
+ for ( byte i = 0; i < numberOfChannels; i++ ) 
+  {
+  Serial.print(F("CH"));
+  Serial.print(i + 1);
+  Serial.print(F(" "));
+  Serial.print(convertMStoDHMS(daystatarray[i] * 1000UL));
+  Serial.println();
+  } 
+ Serial.println(F("---adding period after last record"));
+#endif
+// period of time after last daylog record
+for ( byte i = 0; i < numberOfChannels; i++ ) 
+ {
+ if ( curState[i] )
+  {
+  if ( date == today ) // period of time from the last entry to the current time
+   { 
+   daystatarray[i] += ntpcurEpochTime - curUTC[i]; 
+   #ifdef DEBUG
+    Serial.print(F("CH"));
+    Serial.print(i + 1);
+    Serial.print(F(" added1 "));
+    Serial.println(convertMStoDHMS((ntpcurEpochTime - curUTC[i]) * 1000UL));
+   #endif
+   }
+  else                 // period of time period from the last entry to the end of the day
+   { 
+   daystatarray[i] += date + SECS_PER_DAY - curUTC[i]; 
+   #ifdef DEBUG
+    Serial.print(F("CH"));
+    Serial.print(i + 1);
+    Serial.print(F(" added2 "));
+    Serial.println(convertMStoDHMS((date + SECS_PER_DAY - curUTC[i]) * 1000UL));
+   #endif
+   }
+  } 
+ }
+#ifdef DEBUG
+ Serial.println(F("---stat after last record"));
+ for ( byte i = 0; i < numberOfChannels; i++ ) 
+  {
+  Serial.print(F("CH"));
+  Serial.print(i + 1);
+  Serial.print(F(" "));
+  Serial.print(convertMStoDHMS(daystatarray[i] * 1000UL));
+  Serial.println();
+  } 
+ Serial.println(F("---END read stat"));
+#endif
+return true;  
+}
+
+boolean log_getperiodstat(time_t begdate, time_t enddate, long *daystatarray)
+{
+boolean ret = false;  
+#ifdef DEBUG
+ Serial.print(F("log_getperiodstat() begdate = "));
+ Serial.print(begdate);
+ Serial.print(F(" enddate = "));
+ Serial.println(enddate);
+#endif
+for ( int chNum = 0; chNum < numberOfChannels; chNum++ ) { daystatarray[chNum] = 0; }
+for ( time_t date = begdate; date <= enddate; date += SECS_PER_DAY )
+ { if ( log_getdaystat(date, daystatarray, false) ) { ret = true; } }
+return ret;
+}
+
+String convertMStoDHMS(unsigned long millisec)
+{
+String DHMS = "";
+long secs = millisec / 1000;
+long mins = secs / 60;
+long hours = mins / 60;
+long days = hours / 24;
+secs = secs - ( mins * 60 );
+mins = mins - ( hours * 60 );
+hours = hours - ( days * 24 );
+if ( days > 0 ) 
+ {
+ DHMS += (days/10 > 0 ? String(days/10) : "&nbsp;") + String(days%10);
+ DHMS += (Language ? F("д ") : F("d "));
+ }
+if ( hours > 0 ) 
+ {
+ DHMS += (hours/10 > 0 ? String(hours/10) : "&nbsp;") + String(hours%10);
+ DHMS += (Language ? F("ч ") : F("h "));
+ if ( days > 0 ) 
+  {
+  DHMS += (F(" ("));
+  DHMS += String(hours + ( days * 24 ));
+  DHMS += (Language ? F("ч) ") : F("h) "));
+  }
+ }
+if ( mins > 0 ) 
+ {
+ DHMS += (mins/10 > 0 ? String(mins/10) : "&nbsp;") + String(mins%10);
+ DHMS += (Language ? F("м ") : F("m "));
+ }
+if ( secs > 0 ) 
+ {
+ DHMS += (secs/10 > 0 ? String(secs/10) : "&nbsp;") + String(secs%10);
+ DHMS += (Language ? F("с ") : F("s "));
+ }
+return DHMS;
+}
+
+LastChannelsStates read_lastchannelsstates()
+{
+struct LastChannelsStates ret;
+ret.firstpart = 0; // each of bits corresponds to the status of channel 0...7
+ret.lastpart = 0;  // each of bits corresponds to the status of channel 8...15
+#ifdef DEBUG 
+ Serial.print(F("Reading last channels states : "));
+#endif
+for ( int chNum = 0; chNum < numberOfChannels; chNum++ )
+ {
+ yield(); 
+ if ( ChannelList[chNum][CHANNEL_ENABLED] )
+  {
+       if (  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_BY_TASK 
+         ||  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_OFF_MANUALLY 
+         || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 50 && ChannelList[chNum][CHANNEL_LASTSTATE] < 150) )
+   { 
+   if ( chNum < 8 ) { bitWrite(ret.firstpart, chNum, 0); }
+               else { bitWrite(ret.lastpart, chNum - 8, 0); }
+   }
+  else if (  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_BY_TASK 
+         ||  ChannelList[chNum][CHANNEL_LASTSTATE] == LASTSTATE_ON_MANUALLY 
+         || (ChannelList[chNum][CHANNEL_LASTSTATE] >= 150 && ChannelList[chNum][CHANNEL_LASTSTATE] < 250) )
+   {
+   if ( chNum < 8 ) { bitWrite(ret.firstpart, chNum, 1); }
+               else { bitWrite(ret.lastpart, chNum - 8, 1); }
+   }
+  } 
+ }
+#ifdef DEBUG 
+ Serial.print(ret.firstpart, BIN);
+ Serial.print(F(" "));
+ Serial.println(ret.lastpart, BIN);
+#endif
+return ret; 
+}
 
 void log_Append(uint8_t ev, uint8_t ch = 0, uint8_t ts = 0, uint8_t act = 0 )
 {
 if ( !littleFS_OK ) { return; }
-if ( !ntpTimeIsSynked && ev != LOG_POLLING ) 
+if ( ntpcurEpochTime < NTP_MINIMUM_EPOCHTIME )
  {
- for ( int i = 0; i < LOG_BUFFER_SIZE; i++ ) 
+ if ( ev != LOG_POLLING ) 
   {
-  if ( log_delayed_write_buffer[i].event == LOG_POLLING )
+  for ( int i = 0; i < LOG_BUFFER_SIZE; i++ ) 
    {
-   log_delayed_write_buffer[i] = { millis(), ev, ch, ts, act }; 
-   break;
+   if ( log_delayed_write_buffer[i].event == LOG_POLLING )
+    {
+    log_delayed_write_buffer[i] = { millis(), ev, ch, ts, act }; 
+    break;
+    }
    }
-  }
+  } 
  return;
  }
+check_DaylightSave();
+checkNewDayLogCreate();
 struct Log_Data logdata;
 if ( log_delayed_write_buffer[0].event != LOG_POLLING )
  {
  log_process();
- for ( int i = 0; i < LOG_BUFFER_SIZE; i++ ) 
+ File f = LittleFS.open(log_curPath, "a");
+ if ( f ) 
   {
-  yield(); delay(1); yield();  
-  if ( log_delayed_write_buffer[i].event != LOG_POLLING )
+  for ( int i = 0; i < LOG_BUFFER_SIZE; i++ ) 
    {
-   logdata = { ntpcurEpochTime - ((millis() - log_delayed_write_buffer[i].utc) / 1000)
-              ,log_delayed_write_buffer[i].event,log_delayed_write_buffer[i].ch,log_delayed_write_buffer[i].task,logdata.act };
-   File f = LittleFS.open(log_curPath, "a");
-   if ( f ) { f.write((uint8_t *)&logdata, sizeof(logdata)); f.close(); 
-              log_delayed_write_buffer[i].event = LOG_POLLING; }
+   yield(); delay(1); yield();  
+   if ( log_delayed_write_buffer[i].event != LOG_POLLING )
+    {
+    if ( log_delayed_write_buffer[i].event == LOG_EVENT_START ) 
+     { 
+     // check lastPowerOff before write LOG_EVENT_START
+     if ( lastPowerOff )
+      {
+      // convert GMT0 epoch time to local epoch time 
+      lastPowerOff = lastPowerOff + (ntpTimeZone * 3600) + (curIsDaylightSave * 3600);
+      time_t todayDate = DateOfDateTime(ntpcurEpochTime);
+      time_t lastPowerOffDate = DateOfDateTime(lastPowerOff);
+      if ( lastPowerOffDate == todayDate )
+       {
+       if ( !isSoftRestart )
+        {
+        if ( ntpcurEpochTime < lastPowerOff ) { lastPowerOff = lastPowerOff - (millis() / 1000); }
+        logdata = { lastPowerOff, LOG_EVENT_POWER_OFF, 0, 0, 0 };
+        f.write((uint8_t *)&logdata, sizeof(logdata));
+        yield(); delay(100); yield();  
+        }
+       }
+      else // lastPowerOffDate == todayDate
+       {
+       char path[32];
+       log_pathFromDate(path, lastPowerOffDate);
+       if ( LittleFS.exists(path) )
+        {
+        File fprev = LittleFS.open(path, "a");
+        if ( fprev )
+         {
+         logdata = { lastPowerOff, LOG_EVENT_POWER_OFF, 0, 0, 0 };
+         fprev.write((uint8_t *)&logdata, sizeof(logdata));
+         fprev.close();
+         }
+        }
+       }
+      }
+     }
+    logdata = { ntpcurEpochTime - ((millis() - log_delayed_write_buffer[i].utc) / 1000)
+               ,log_delayed_write_buffer[i].event, log_delayed_write_buffer[i].ch
+               ,log_delayed_write_buffer[i].task, logdata.act };
+    f.write((uint8_t *)&logdata, sizeof(logdata));
+    yield(); delay(100); yield();  
+    log_delayed_write_buffer[i].event = LOG_POLLING; 
+    }
+   else 
+    { break; }    
    }
-  else { break; }    
+  f.close(); 
   }
  }
 if ( ev != LOG_POLLING )
@@ -402,13 +804,14 @@ void ntpTimeSynked()
 bool appLog = !ntpTimeIsSynked;
 ntpTimeIsSynked = true;  
 ntpLastPollingSuccess = true;
-if ( !ntpDaylightSave ) { check_DaylightSave(); }
+check_DaylightSave();
 if ( appLog || rtcmemTimeIsSynced ) 
  { 
  ntpGetTime(); 
  log_Append(LOG_EVENT_NTP_TIME_SYNC_SUCCESS); 
  rtcmemTimeIsSynced = false;
  }
+ntpTimeIsSynked = ( ntpcurEpochTime > NTP_MINIMUM_EPOCHTIME );
 ntpLastSynkedTimer = millis();
 }
 
@@ -440,6 +843,7 @@ if ( ESP.rtcUserMemoryRead(0, (uint32_t *)&RTCMEMData, sizeof(RTCMEMData)) )
  if ( crcOfRTCMEMEpochTime == RTCMEMData.RTCMEMcrc32 )
   {
   ntpcurEpochTime = RTCMEMData.RTCMEMEpochTime + (millis() / 1000) + 1;
+  ntpTimeInfo = gmtime(&ntpcurEpochTime); 
   curIsDaylightSave = RTCMEMData.RTCMEMcurIsDaylightSave;
   #ifdef DEBUG 
    Serial.println(F("CRC OK, set datetime from RTCMEM"));
@@ -449,17 +853,47 @@ if ( ESP.rtcUserMemoryRead(0, (uint32_t *)&RTCMEMData, sizeof(RTCMEMData)) )
   ntpTimeIsSynked = true;
   yield(); delay(1); yield();
   ntpGetTime();
-  log_Append(LOG_EVENT_RTCMEM_TIME_SYNC_SUCCESS);  
+  log_Append(LOG_EVENT_RTCMEM_TIME_SYNC_SUCCESS);
   rtcmemTimeIsSynced = true;
+  isSoftRestart = true;
   } 
  }
-else 
- { 
- #ifdef DEBUG 
-  Serial.println(F("Reading data from RTC memory failed !"));
- #endif
- log_Append(LOG_EVENT_RTCMEM_READ_ERROR);
- }
+else { log_Append(LOG_EVENT_RTCMEM_READ_ERROR); }
+}
+
+void checkNewDayLogCreate()
+{
+static time_t previous_day = 0;
+if ( !littleFS_OK ) { return; }
+if ( ntpcurEpochTime < NTP_MINIMUM_EPOCHTIME ) { return; }
+if ( !ntpTimeIsSynked ) { return; }
+time_t today = DateOfDateTime(ntpcurEpochTime);
+if ( today != previous_day ) // we have switched to another day
+ {
+ char log_curPath[32];
+ log_pathFromDate(log_curPath, today);
+ if ( !LittleFS.exists(log_curPath) )
+  {
+  struct LastChannelsStates lastchannelsstates = read_lastchannelsstates();
+  struct Log_Data logdata;
+  time_t logtime = ntpcurEpochTime;
+  if ( !isSoftRestart && previous_day == 0 ) { logtime = ntpcurEpochTime - (millis() / 1000); }
+  logdata = { logtime, LOG_EVENT_NEWDAYLOG_CREATED, lastchannelsstates.firstpart, lastchannelsstates.lastpart, 0 };
+  File f = LittleFS.open(log_curPath, "a");
+  if ( f ) 
+   { 
+   f.write((uint8_t *)&logdata, sizeof(logdata)); 
+   f.close(); 
+   #ifdef DEBUG 
+    Serial.print(F("New daylog file "));
+    Serial.print(log_curPath);
+    Serial.print(F(" was created"));
+    Serial.println();
+   #endif
+   }
+  }
+ previous_day = today;
+ }  
 }
 
 void ntpGetTime() 
@@ -467,29 +901,31 @@ void ntpGetTime()
 static unsigned long everySecondTimer = 0;  
 static bool writeErrorToLogOnlyOnce = false;
 if ( !ntpTimeIsSynked ) { return; }
+time_t GMT0epochtime;
 yield(); delay(1); yield();
-// get GMT0 epoch time (this function calls the NTP server every NTPPOLLINGNTERVAL ms)
-time(&ntpcurEpochTime);
+time(&GMT0epochtime); // get GMT0 epoch time (this function calls the NTP server every NTP_POLLING_INTERVAL ms)
+if ( GMT0epochtime < NTP_MINIMUM_EPOCHTIME ) { return; }
+// convert GMT0 epoch time to local epoch time 
+ntpcurEpochTime = GMT0epochtime + (ntpTimeZone * 3600) + (curIsDaylightSave * 3600);
+ntpTimeInfo = gmtime(&ntpcurEpochTime); 
 yield(); delay(1); yield();
 if ( millis() - everySecondTimer > 1000UL )
  {
- RTCMEMData.RTCMEMEpochTime = ntpcurEpochTime; // GMT0 epoch time
+ RTCMEMData.RTCMEMEpochTime = GMT0epochtime;
  RTCMEMData.RTCMEMcrc32 = calculateCRC32((uint8_t *)&RTCMEMData.RTCMEMEpochTime, sizeof(RTCMEMData.RTCMEMEpochTime));
  RTCMEMData.RTCMEMcurIsDaylightSave = curIsDaylightSave;
  if ( !ESP.rtcUserMemoryWrite(0, (uint32_t *)&RTCMEMData, sizeof(RTCMEMData)) )
   { 
-  #ifdef DEBUG 
-   Serial.println(F("Storing data to RTC memory failed !"));
-  #endif
   if ( !writeErrorToLogOnlyOnce ) 
    {
    log_Append(LOG_EVENT_RTCMEM_WRITE_ERROR);
    writeErrorToLogOnlyOnce = true;
    }
   }
+ checkNewDayLogCreate();
  everySecondTimer = millis(); 
  }
-if ( millis() - ntpLastSynkedTimer > NTPPOLLINGNTERVAL + 60000 )
+if ( millis() - ntpLastSynkedTimer > NTP_POLLING_INTERVAL + 60000 )
  {
  if ( ntpLastPollingSuccess ) 
   { 
@@ -498,9 +934,6 @@ if ( millis() - ntpLastSynkedTimer > NTPPOLLINGNTERVAL + 60000 )
   }
  ntpLastSynkedTimer = millis(); 
  }
-// convert GMT0 epoch time to local epoch time 
-ntpcurEpochTime = ntpcurEpochTime + (ntpTimeZone * 3600) + (curIsDaylightSave * 3600);
-ntpTimeInfo = gmtime(&ntpcurEpochTime); 
 }
 
 uint8_t calcOldChMode(int chNum)
@@ -553,28 +986,32 @@ EEPROM.commit();
 
 bool isSummerTimeNow()
 {
-if ( !ntpDaylightSave ) { return false; }
+if ( !ntpAutoDaylightSavingEnabled ) { return false; }
+time_t GMT0ET;
+time(&GMT0ET);
+struct tm *GMT0ETinfo;
+GMT0ETinfo = gmtime(&GMT0ET);
 if ( ntpDaylightSaveZone == 0 ) // EU
  {
- if ( (ntpTimeInfo->tm_mon + 1) < 3 || (ntpTimeInfo->tm_mon + 1) > 10 ) return false; // Jan, Feb, Nov, Dec
- if ( (ntpTimeInfo->tm_mon + 1) > 3 && (ntpTimeInfo->tm_mon + 1) < 10 ) return true;  // Apr, May, Jun, Jul, Aug, Sep
- return ( ((ntpTimeInfo->tm_mon + 1) == 3 && ((ntpTimeInfo->tm_hour + 24 * ntpTimeInfo->tm_mday) >= (1 + 24 * (31 - (5 * (1900 + ntpTimeInfo->tm_year) / 4 + 4) % 7)))) 
-     ||  (((ntpTimeInfo->tm_mon + 1) == 10 && (ntpTimeInfo->tm_hour + 24 * ntpTimeInfo->tm_mday) <  (1 + 24 * (31 - (5 * (1900 + ntpTimeInfo->tm_year) / 4 + 1) % 7)))) );
+ if ( (GMT0ETinfo->tm_mon + 1) < 3 || (GMT0ETinfo->tm_mon + 1) > 10 ) return false; // Jan, Feb, Nov, Dec
+ if ( (GMT0ETinfo->tm_mon + 1) > 3 && (GMT0ETinfo->tm_mon + 1) < 10 ) return true;  // Apr, May, Jun, Jul, Aug, Sep
+ return ( ((GMT0ETinfo->tm_mon + 1) == 3 && ((GMT0ETinfo->tm_hour + 24 * GMT0ETinfo->tm_mday) >= (1 + 24 * (31 - (5 * (1900 + GMT0ETinfo->tm_year) / 4 + 4) % 7)))) 
+      || (((GMT0ETinfo->tm_mon + 1) == 10 && (GMT0ETinfo->tm_hour + 24 * GMT0ETinfo->tm_mday) <  (1 + 24 * (31 - (5 * (1900 + GMT0ETinfo->tm_year) / 4 + 1) % 7)))) );
  }
 if ( ntpDaylightSaveZone == 1 ) // USA
  {
- if ( (ntpTimeInfo->tm_mon + 1) < 3 || (ntpTimeInfo->tm_mon + 1) > 11 ) return false;
- if ( (ntpTimeInfo->tm_mon + 1) > 3 && (ntpTimeInfo->tm_mon + 1) < 11 ) return true;
- uint8_t first_sunday = (7 + ntpTimeInfo->tm_mday - ntpTimeInfo->tm_wday) % 7 + 1; // first sunday of current month
- if ( (ntpTimeInfo->tm_mon + 1) == 3 ) // Starts at 2:00 am on the second sunday of Mar
+ if ( (GMT0ETinfo->tm_mon + 1) < 3 || (GMT0ETinfo->tm_mon + 1) > 11 ) return false;
+ if ( (GMT0ETinfo->tm_mon + 1) > 3 && (GMT0ETinfo->tm_mon + 1) < 11 ) return true;
+ uint8_t first_sunday = (7 + GMT0ETinfo->tm_mday - GMT0ETinfo->tm_wday) % 7 + 1; // first sunday of current month
+ if ( (GMT0ETinfo->tm_mon + 1) == 3 ) // Starts at 2:00 am on the second sunday of Mar
   {
-  if ( ntpTimeInfo->tm_mday < 7 + first_sunday ) return false;
-  if ( ntpTimeInfo->tm_mday > 7 + first_sunday ) return true;
-  return ( ntpTimeInfo->tm_hour > 2 );
+  if ( GMT0ETinfo->tm_mday < 7 + first_sunday ) return false;
+  if ( GMT0ETinfo->tm_mday > 7 + first_sunday ) return true;
+  return ( GMT0ETinfo->tm_hour > 2 );
   }
- if ( ntpTimeInfo->tm_mday < first_sunday ) return true; // Ends a 2:00 am on the first sunday of Nov. We are only getting here if its Nov
- if ( ntpTimeInfo->tm_mday > first_sunday ) return false;
- return (ntpTimeInfo->tm_hour < 2);
+ if ( GMT0ETinfo->tm_mday < first_sunday ) return true; // Ends a 2:00 am on the first sunday of Nov. We are only getting here if its Nov
+ if ( GMT0ETinfo->tm_mday > first_sunday ) return false;
+ return (GMT0ETinfo->tm_hour < 2);
  }
 return false;
 }
@@ -582,12 +1019,22 @@ return false;
 void check_DaylightSave()
 { 
 curIsDaylightSave = isSummerTimeNow();
+ntpGetTime();
 if ( curIsDaylightSave != previousIsDaylightSave )
  { 
  ntpGetTime();
- if ( millis() > 60000 ) { log_Append( (curIsDaylightSave ? LOG_EVENT_DAYLIGHT_SAVING_ON : LOG_EVENT_DAYLIGHT_SAVING_OFF) ); }
+ if ( millis() > 60000 ) 
+  { 
+  log_Append( (curIsDaylightSave ? LOG_EVENT_DAYLIGHT_SAVING_ON : LOG_EVENT_DAYLIGHT_SAVING_OFF) ); 
+  }
+ if ( previousIsDaylightSave ) // time is set back an hour
+  {
+  RingCounter.clear();
+  RingCounter.init();
+  saveGMTtimeToRingCounter();
+  }
+ previousIsDaylightSave = curIsDaylightSave; 
  }
-previousIsDaylightSave = curIsDaylightSave; 
 } 
 
 void begin_WiFi_STA()
@@ -597,19 +1044,32 @@ WiFi.softAPdisconnect(true);
 if ( wifiManuallySetAddresses ) { WiFi.config(wifiManuallySetIP, wifiManuallySetGW, wifiManuallySetSUBNET, wifiManuallySetDNS); }
 #ifdef DEBUG 
  Serial.print(F("Connecting to "));
- Serial.println(AP_name);
+ Serial.print(AP_name);
 #endif
 WiFi.begin(AP_name, AP_pass);
 unsigned long bt = millis();
-while ( millis() - bt < 60000UL )
+while ( millis() - bt < WIFICONNECTIONTRYPERIOD )
  {
- yield(); delay(0);
+ yield(); delay(500);
  statusWiFi = (WiFi.status() == WL_CONNECTED);
- if ( statusWiFi ) { break; }
+ #ifdef DEBUG 
+  Serial.print(F("."));
+ #endif
+ if ( statusWiFi ) 
+  { 
+  #ifdef DEBUG 
+   Serial.print(F("OK"));
+  #endif
+  break; 
+  }
  }
+#ifdef DEBUG 
+ Serial.println();
+#endif
 log_Append(statusWiFi ? LOG_EVENT_WIFI_CONNECTION_SUCCESS : LOG_EVENT_WIFI_CONNECTION_ERROR); 
 previousstatusWiFi = statusWiFi; 
 #ifdef DEBUG 
+ yield(); delay(500);
  if ( statusWiFi ) 
   {
   Serial.print(F("Connected to    ")); Serial.println(AP_name);
@@ -620,7 +1080,8 @@ previousstatusWiFi = statusWiFi;
   Serial.print(F("Subnet mask     ")); Serial.println(WiFi.subnetMask());
   Serial.print(F("MDNS access     http://")); Serial.print(MDNSHOST); Serial.println(F(".local"));
   }
- else { Serial.println(F("Can't connect to WiFi.")); }
+ else 
+  { Serial.println(F("Can't connect to WiFi.")); }
 #endif
 if ( !statusWiFi )
  {
@@ -699,7 +1160,7 @@ HTTPUpload& upload = server.upload();
 if ( upload.status == UPLOAD_FILE_START )
  {
  String filename = upload.filename;
- if ( !filename.startsWith("/") ) filename = "/"+filename;
+ if ( !filename.startsWith("/") ) filename = "/" + filename;
  uploadFileHandle = LittleFS.open(filename, "w");
  filename = String();
  } 
@@ -711,13 +1172,15 @@ else if ( upload.status == UPLOAD_FILE_END )
 
 void log_process()
 {
+static time_t log_today = 0;
 static bool log_processAfterStart = true;
 static unsigned long log_lastProcess = 0;
-if ( (!littleFS_OK) || (!ntpTimeIsSynked) ) { return; }
+if ( !littleFS_OK ) { return; }
+if ( ntpcurEpochTime < NTP_MINIMUM_EPOCHTIME ) { return; }
 unsigned long currentMillis = millis();
 if  ( currentMillis - log_lastProcess > 1000UL || log_processAfterStart )
  {
- time_t today = ntpcurEpochTime / 86400 * 86400; // remove the time part
+ time_t today = DateOfDateTime(ntpcurEpochTime);
  if ( log_today != today ) // we have switched to another day
   { 
   log_today = today;
@@ -728,9 +1191,7 @@ if  ( currentMillis - log_lastProcess > 1000UL || log_processAfterStart )
    time_t midnight = log_filenameToDate(dir.fileName());
    if ( midnight <= (today - log_DaysToKeep * 86400) )
     {
-    String rm = LOG_DIR;
-    rm += "/" + String(dir.fileName());   
-    LittleFS.remove(rm); 
+    LittleFS.remove(String(LOG_DIR) + "/" + String(dir.fileName())); 
     } 
    }
   }
@@ -741,7 +1202,8 @@ if  ( currentMillis - log_lastProcess > 1000UL || log_processAfterStart )
 
 void log_pathFromDate(char *output, time_t date)
 {
-if ( date <= 0 ) { date = log_today; }
+if ( ntpcurEpochTime < NTP_MINIMUM_EPOCHTIME ) { return; }
+if ( date == 0 ) { date = DateOfDateTime(ntpcurEpochTime); }
 struct tm *tinfo = gmtime(&date);
 sprintf_P(output, "%s/%d%02d%02d", LOG_DIR, 1900 + tinfo->tm_year, tinfo->tm_mon + 1, tinfo->tm_mday);
 }
@@ -754,14 +1216,14 @@ String ss;
 ss = filename.substring(0,4); tm.tm_year = ss.toInt() - 1900;
 ss = filename.substring(4,6); tm.tm_mon = ss.toInt() - 1;
 ss = filename.substring(6,8); tm.tm_mday = ss.toInt();
-return ( mktime(&tm) - (mktime(&start2000) - 946684800) ) / 86400 * 86400;
+return ( mktime(&tm) - (mktime(&start2000) - 946684800) ) / SECS_PER_DAY * SECS_PER_DAY;
 }
 
-boolean log_readRow(Log_Data *output, size_t rownumber)
+boolean log_readRow(Log_Data *output, size_t rownumber, File fileHandle)
 {
-if ( ((int32_t)(log_FileHandle.size() / sizeof(Log_Data)) - (int32_t)rownumber) <= 0 ) { return false; }
-log_FileHandle.seek(rownumber * sizeof(Log_Data));
-log_FileHandle.read((uint8_t *)output, sizeof(Log_Data));
+if ( ((int32_t)(fileHandle.size() / sizeof(Log_Data)) - (int32_t)rownumber) <= 0 ) { return false; }
+fileHandle.seek(rownumber * sizeof(Log_Data));
+fileHandle.read((uint8_t *)output, sizeof(Log_Data));
 return true;
 }
 
@@ -802,6 +1264,7 @@ log_Month = ptm->tm_mon + 1;
 log_Year = ptm->tm_year + 1900 ;
 log_NumRecords = log_FileSizeForDate(log_ViewDate) / sizeof(Log_Data); 
 log_StartRecord = log_NumRecords;
+log_CurDate = String(log_Year) + ( log_Month < 10 ? F("0") : F("") ) + String(log_Month) + ( log_Day < 10 ? F("0") : F("") ) + String(log_Day);
 }
 
 int drawFSinfo()
@@ -868,27 +1331,20 @@ if ( index == 0 )
  content += (Language ? F("Универсальный программируемый таймер, версия ") : F("Versatile timer, version "));
  content += VERSION;
  content += (Language ? F("</span><p>Время: <b>") : F("</span><p>Time: <b>"));
- content += String(ntpTimeInfo->tm_hour) + F(":")  + ( ntpTimeInfo->tm_min < 10 ? "0" : "" ) + String(ntpTimeInfo->tm_min) + F(":") 
-         + ( ntpTimeInfo->tm_sec < 10 ? "0" : "" ) + String(ntpTimeInfo->tm_sec) + F("</b>,&nbsp;<b>");
- content += namesOfDays[Language][ntpTimeInfo->tm_wday];
- if ( !ntpTimeIsSynked )
+ if ( ntpcurEpochTime > NTP_MINIMUM_EPOCHTIME )
+  {
+  content += String(ntpTimeInfo->tm_hour) + F(":")  + ( ntpTimeInfo->tm_min < 10 ? "0" : "" ) + String(ntpTimeInfo->tm_min) + F(":") 
+          + ( ntpTimeInfo->tm_sec < 10 ? "0" : "" ) + String(ntpTimeInfo->tm_sec) + F("</b>,&nbsp;<b>");
+  content += namesOfDays[Language][ntpTimeInfo->tm_wday];
+  }
+ else
   {
   content += F("&emsp;<font color='red'>"); 
   content += (Language ? F("Ошибка синхронизации времени") : F("Time sync error"));
   content += F("</font>"); 
   }
- long secs = millis()/1000;
- long mins = secs / 60;
- long hours = mins / 60;
- long days = hours / 24;
- secs = secs - ( mins * 60 );
- mins = mins - ( hours * 60 );
- hours = hours - ( days * 24 );
  content += (Language ? F("</b>&emsp;Время работы: <b>") : F("</b>&emsp;Uptime: <b>"));
- if ( days > 0 )  { content += String(days)  + (Language ? F("д ") : F("d ")); } 
- if ( hours > 0 ) { content += String(hours) + (Language ? F("ч ") : F("h ")); }
- if ( mins > 0 )  { content += String(mins)  + (Language ? F("м ") : F("m ")); }
- content += String(secs) + (Language ? F("с ") : F("s "));
+ content += convertMStoDHMS(millis());
  content += (Language ? F("</b>&emsp;Прошивка загружена: <b>") : F("</b>&emsp;Firmware uploaded: <b>"));
  content += String(__DATE__);
  content += (Language ? F("</b>&emsp;Перезагрузок: <b>") : F("</b>&emsp;Reboots: <b>"));
@@ -913,7 +1369,7 @@ else if ( index == 1 )
    }
   yield();
   }
- content += (Language ? F("Журнал на ") : F("Log for "));
+ content += (Language ? F("Журнал на ") : F("Daylog for "));
  content += String(log_Day) + F(".");
  if ( log_Month < 10 ) { content += F("0"); }
  content += String(log_Month) + F(".");
@@ -965,7 +1421,7 @@ if ( LittleFS.exists(path) )
  log_FileHandle = LittleFS.open(path, "r");
  if ( log_FileHandle )
   {
-  while ( log_readRow(&rl, ls - 1) )
+  while ( log_readRow(&rl, ls - 1, log_FileHandle) )
    { 
    content += F("<tr><td align='center'>");
    content += String(ls) + F("</td><td>&emsp;");
@@ -985,9 +1441,19 @@ if ( LittleFS.exists(path) )
      || (rl.event >= LOG_EVENT_RESTART_REASON_0 && rl.event <= LOG_EVENT_RESTART_REASON_UNKNOWN)
       )
     {
-    content += (rl.event == LOG_EVENT_START ? F("<u>") : F(""))
-             + namesOfEvents[Language][rl.event]
-             + (rl.event == LOG_EVENT_START ? F("</u>") : F(""));
+    content += (rl.event == LOG_EVENT_START ? F("<u>") : F("")) + namesOfEvents[Language][rl.event];
+    if ( rl.event == LOG_EVENT_START || rl.event == LOG_EVENT_NEWDAYLOG_CREATED )
+     {
+     content += (rl.event == LOG_EVENT_START ? F("</u>") : F(""));
+     content += (Language ? F(" (состояния каналов: ")  : F(" (channels states: "));
+     for ( byte i = 0; i < numberOfChannels; i++ )
+      {
+      if ( i < 8 ) { content += String(bitRead(rl.ch, i)); }
+              else { content += String(bitRead(rl.task, i - 8)); }
+      if ( i != numberOfChannels - 1 ) { content += F("-"); }        
+      }
+     content += F(")");
+     }  
     }
    else if ( rl.event == LOG_EVENT_TASK_SWITCHING_MANUALLY || rl.event == LOG_EVENT_TASK_SWITCHING_BY_TASK ) 
     {
@@ -1028,8 +1494,10 @@ if ( LittleFS.exists(path) )
   log_FileHandle.close();
   }
  }
-log_CurDate = String(log_Year) + ( log_Month < 10 ? F("0") : F("") ) + String(log_Month) + ( log_Day < 10 ? F("0") : F("") ) + String(log_Day);
 content += F("</tr></table><p>");
+log_CurDate = String(log_Year) + ( log_Month < 10 ? F("0") : F("") ) + String(log_Month) + ( log_Day < 10 ? F("0") : F("") ) + String(log_Day);
+if ( logstat_BegDate == "" ) { logstat_BegDate = log_CurDate; }
+if ( logstat_EndDate == "" ) { logstat_EndDate = log_CurDate; }
 if ( log_NumRecords > 0 )
  {
  content += (Language ? F("Записи с <b>") : F("Records from <b>"));
@@ -1039,8 +1507,9 @@ if ( log_NumRecords > 0 )
  content += (Language ? F("</b> из <b>") : F("</b> of <b>"));
  content += String(log_NumRecords);
  }
-else { content += (Language ? F("</b><i>Записи на указанную дату не найдены</i>") : F("</b><i>No records found for the specified date</i>")); }
-content += F("</b></p><hr><form>");
+else 
+ { content += (Language ? F("</b><i>Записи на указанную дату не найдены</i>") : F("</b><i>No records found for the specified date</i>")); }
+content += F("</b></p><form>");
 content += F("<input formaction='/log_first' formmethod='get' type='submit' value='   |<   '");
 if ( log_NumRecords <= log_ViewStep || log_StartRecord == log_NumRecords ) 
  { content += F("' disabled />"); } else { content += F("' />"); }
@@ -1060,14 +1529,12 @@ content += F("&emsp;<input formaction='/log_incdate' formmethod='get' type='subm
 content += (Language ? F(" Следующий день ") : F(" Next Day "));
 if ( log_CurDate.compareTo(log_MaxDate) >= 0 ) { content += F("' disabled />"); } else { content += F("' />"); }
 content += F("&emsp;&emsp;<input formaction='/log_return' formmethod='get' type='submit' value='");
-content += (Language ? F("На главную страницу") : F("To Home Page"));
+content += (Language ? F("Назад на главную страницу") : F("Return to Home Page"));
 content += F("' /></form>");
-yield(); 
-content += F("<hr>");
 if ( log_MinDate != log_MaxDate )
  {
  content += F("<form action='/log_setdate'><p>");
- content += (Language ? F("Выберите дату") : F("Select a date"));
+ content += (Language ? F("Выберите дату журнала") : F("Select daylog date"));
  content += F(":&emsp;<input name='calendar' type='date' value='");
  content += String(log_Year) + F("-");
  content += ( log_Month < 10 ? F("0") : F("") ) + String(log_Month) + F("-");
@@ -1083,7 +1550,99 @@ if ( log_MinDate != log_MaxDate )
  content += F("'>&emsp;<input type='submit' value='");
  content += (Language ? F("Установить") : F("Set"));
  content += F("' /></p></form>");
+ // logstat_BegDate
+ content += F("<hr>");
+ content += F("<form action='/log_setstatperiod'><p>");
+ content += (Language ? F("Статистика за период с") : F("Statistics period from"));
+ content += F(":&emsp;<input name='calendar' type='date' value='");
+ content += logstat_BegDate.substring(0,4) + F("-");
+ content += logstat_BegDate.substring(4,6) + F("-");
+ content += logstat_BegDate.substring(6,8);
+ content += F("' max='");
+ content += log_MaxDate.substring(0,4) + F("-");
+ content += log_MaxDate.substring(4,6) + F("-");
+ content += log_MaxDate.substring(6,8);
+ content += F("' min='");
+ content += log_MinDate.substring(0,4) + F("-");
+ content += log_MinDate.substring(4,6) + F("-");
+ content += log_MinDate.substring(6,8);
+ content += F("'>");
+ // logstat_EndDate
+ content += (Language ? F("&emsp;по") : F("&emsp;to"));
+ content += F(":&emsp;<input name='calendar' type='date' value='");
+ content += logstat_EndDate.substring(0,4) + F("-");
+ content += logstat_EndDate.substring(4,6) + F("-");
+ content += logstat_EndDate.substring(6,8);
+ content += F("' max='");
+ content += log_MaxDate.substring(0,4) + F("-");
+ content += log_MaxDate.substring(4,6) + F("-");
+ content += log_MaxDate.substring(6,8);
+ content += F("' min='");
+ content += log_MinDate.substring(0,4) + F("-");
+ content += log_MinDate.substring(4,6) + F("-");
+ content += log_MinDate.substring(6,8);
+ content += F("'>&emsp;");
+ content += F("<input type='submit' value='");
+ content += (Language ? F("Установить") : F("Set"));
+ content += F("' /></p></form>");
  }
+yield(); 
+boolean StatAvailable;
+boolean noStat = false;
+long daystatarray[numberOfChannels]; 
+time_t begdate = log_filenameToDate(logstat_BegDate);
+time_t enddate = log_filenameToDate(logstat_EndDate);
+if ( logstat_BegDate != logstat_EndDate ) { StatAvailable = log_getperiodstat(begdate, enddate, daystatarray); }
+                                     else { StatAvailable = log_getdaystat(log_ViewDate, daystatarray); }
+if ( StatAvailable )
+ {
+ content += F("<hr>");
+ boolean StatisticsAvailable = false;
+ for ( byte i = 0; i < numberOfChannels; i++ ) 
+  { if ( daystatarray[i] > 0 ) { StatisticsAvailable = true; break; } }
+ if ( StatisticsAvailable )
+  {
+  content += F("<table><tr>");
+  content += (Language ? F("<th>Статистика за ") : F("<th>Statistics for "));
+  content += logstat_BegDate.substring(6,8) + F(".");
+  content += logstat_BegDate.substring(4,6) + F(".");
+  content += logstat_BegDate.substring(0,4);
+  if ( logstat_BegDate != logstat_EndDate )
+   {
+   content += F(" - ");
+   content += logstat_EndDate.substring(6,8) + F(".");
+   content += logstat_EndDate.substring(4,6) + F(".");
+   content += logstat_EndDate.substring(0,4);
+   }
+  content += F(" :&emsp;</th>");
+  content += (Language ? F("<th>Канал</th>") : F("<th>Channel</th>"));
+  content += (Language ? F("<th>Общее время включения</th>") : F("<th>Total time ON</th>"));
+  content += F("</tr>");
+  for ( byte i = 0; i < numberOfChannels; i++ ) 
+   {
+   if ( daystatarray[i] > 0 )
+    {  
+    content += F("<tr><td align='center'>&emsp;</td>");
+    content += F("<td align='right'>");
+    content += String(i + 1) + F("</td>");
+    content += F("<td align='right'>&emsp;");
+    content += (convertMStoDHMS(daystatarray[i] * 1000UL));
+    content += F("&emsp;</td></tr>");
+    }
+   }  
+  content += F("</table>");
+  }
+ else { noStat = true; }
+ }
+else { noStat = true; }
+if ( noStat )
+ {
+ content += (Language ? F("Статистика за ") : F("Statistics for  "));
+ content += ( log_Day < 10 ? F("0") : F("") ) + String(log_Day) + "." + 
+            ( log_Month < 10 ? F("0") : F("") ) + String(log_Month) + "." + String(log_Year) + "<b>";
+ content += (Language ? F(" : отсутствует или пустая") : F(" : no stats or empty"));
+ }
+content += F("</b><hr>");
 content += F("<form method='get' form action='/setlog_ViewStep'><p>");
 content += (Language ? F("Записей на странице") : F("Entries per page"));
 content += F(":&emsp;<input name='vs' type='number' min='");
@@ -1101,7 +1660,13 @@ content += String((littleFStotalBytes / littleFSblockSize) - 4);
 content += F("' value='");
 content += String(log_DaysToKeep) + F("' />&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить и перезагрузить") : F("Save and reboot"));
-content += F("' /></p></form></body></html>\r\n");
+content += F("' /></p></form>");
+#ifdef DEBUG 
+ content += F("<form action='/log_deletefile' form method='get' onsubmit='warn();return false;'><input name='logdel' type='submit' value='");
+ content += (Language ? F("Удалить журнал и перезагрузить") : F("Delete daylog and reboot"));
+ content += F("' /></form>");
+#endif 
+content += F("</body></html>\r\n");
 yield();
 server.sendContent(content);
 server.sendContent(F("")); // transfer is done
@@ -1382,6 +1947,7 @@ WiFi.scanDelete();
 void drawFilesSettings()
 {
 if ( !littleFS_OK ) { return; }
+if ( ntpcurEpochTime < NTP_MINIMUM_EPOCHTIME ) { return; }
 String content = F("<hr>");
 server.sendContent(content); content = "";
 yield();
@@ -1392,6 +1958,7 @@ if ( littleFStotalBytes - usedBytes >= littleFSblockSize )
  content += F("<p><form method='get' form action='/savesettings'>");
  content += (Language ? F("Сохранить все настройки в файл") : F("Save all settings to file"));
  content += F(":&emsp;<input maxlength='30' name='fn' size='30' type='text' pattern='[a-zA-Z0-9-_.]+' required value='");
+ ntpTimeInfo = gmtime(&ntpcurEpochTime); 
  content += String(1900 + ntpTimeInfo->tm_year) + F("-")
          + ( ntpTimeInfo->tm_mon + 1 < 10 ? F("0") : F("") ) + String(ntpTimeInfo->tm_mon + 1) + F("-")
          + ( ntpTimeInfo->tm_mday < 10 ? F("0") : F("") ) + String(ntpTimeInfo->tm_mday) + F("-")
@@ -1605,7 +2172,7 @@ if ( littleFS_OK )
  {
  content += F("<hr>");
  content += F("<center><p><form method='get' form action='/viewlog'><input name='vwl' type='submit' value='&emsp;&emsp;&emsp;");
- content += (Language ? F("Просмотр журнала") : F("View log"));
+ content += (Language ? F("Просмотр суточных журналов и статистики") : F("View daily logs and statistics"));
  content += F("&emsp;&emsp;&emsp;' /></form></p></center>");
  }
 content += F("<hr>");
@@ -1663,7 +2230,7 @@ content += F("' /></p></form>");
 content += F("<form method='get' form action='/setntpdaylightsave'><p>");
 content += (Language ? F("Автопереход на летнее-зимнее время") : F("Auto daylight saving time"));
 content += F(":&emsp;<select name='dls' size='1'><option ");
-if ( ntpDaylightSave ) { content += (Language ? F("selected='selected' value='11'>включен</option><option value='10'>") 
+if ( ntpAutoDaylightSavingEnabled ) { content += (Language ? F("selected='selected' value='11'>включен</option><option value='10'>") 
                                               : F("selected='selected' value='11'>enabled</option><option value='10'>")); }
                   else { content += (Language ? F("value='11'>включен</option><option selected='selected' value='10'>") 
                                               : F("value='11'>enabled</option><option selected='selected' value='10'>")); }
@@ -1671,7 +2238,7 @@ content += (Language ? F("отключен") : F("disabled"));
 content += F("</option></select>&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить") : F("Save"));
 content += F("' />&emsp;<font color='darkblue'>");
-if ( ntpDaylightSave )
+if ( ntpAutoDaylightSavingEnabled )
  { if ( isSummerTimeNow() ) { content += (Language ? F("Сейчас активно летнее время") : F("Daylight saving active now")); }
                        else { content += (Language ? F("Сейчас активно зимнее время") : F("Daylight saving inactive now")); } }
 content += F("</font></p></form><form method='get' form action='/setntpdaylightsavezone'><p>");
@@ -1690,10 +2257,17 @@ content += (Language ? F("Европа в 4:00 в последнее воскр�
 content += (Language ? F("США в 2:00 во второе воскресенье марта и в 2:00 в первое воскресенье ноября.")
                      : F("USA at 2:00 am on the second sunday of March and at 2:00 am on the first sunday of November."));
 content += F("</i></p></form>");
-content += F("<form method='get' form action='/setntpservername'><p>");
-content += (Language ? F("Сервер синхронизации времени") : F("Time synchronization server"));
+content += F("<form method='get' form action='/setntpservername1'><p>");
+content += (Language ? F("Сервер синхронизации времени 1") : F("Time synchronization server 1"));
 content += F(":&emsp;<input maxlength='32' name='sn' required size='32' type='text' value='");
-content += ntpServerName;
+content += ntpServerName1;
+content += F("' />&emsp;<input type='submit' value='");
+content += (Language ? F("Сохранить") : F("Save"));
+content += F("' /></p></form>");
+content += F("<form method='get' form action='/setntpservername2'><p>");
+content += (Language ? F("Сервер синхронизации времени 2") : F("Time synchronization server 2"));
+content += F(":&emsp;<input maxlength='32' name='sn' required size='32' type='text' value='");
+content += ntpServerName2;
 content += F("' />&emsp;<input type='submit' value='");
 content += (Language ? F("Сохранить") : F("Save"));
 content += F("' /></p></form>");
@@ -1785,8 +2359,8 @@ ntpTimeZone = ntpTimeZone - 12;
 if ( ntpTimeZone > 24 ) { ntpTimeZone = NTP_DEFAULT_TIME_ZONE; }
 ntpDaylightSaveZone = EEPROM.read(NTP_DAYLIGHTSAVEZONE_EEPROM_ADDRESS);
 if ( ntpDaylightSaveZone != 0 && ntpDaylightSaveZone != 1 ) { ntpDaylightSaveZone = 0; } 
-ntpDaylightSave = EEPROM.read(NTP_DAYLIGHTSAVE_EEPROM_ADDRESS);
-if ( ntpDaylightSave != 0 && ntpDaylightSave != 1 ) { ntpDaylightSave = 1; } 
+ntpAutoDaylightSavingEnabled = EEPROM.read(NTP_DAYLIGHT_SAVING_ENABLED_ADDRESS);
+if ( ntpAutoDaylightSavingEnabled != 0 && ntpAutoDaylightSavingEnabled != 1 ) { ntpAutoDaylightSavingEnabled = 1; } 
 wifiManuallySetAddresses = EEPROM.read(WIFI_MANUALLY_SET_EEPROM_ADDRESS);
 if ( wifiManuallySetAddresses != 0 && wifiManuallySetAddresses != 1 ) { wifiManuallySetAddresses = 0; } 
 numberOfTasks = EEPROM.read(NUMBER_OF_TASKS_EEPROM_ADDRESS);
@@ -1798,14 +2372,18 @@ numberOfChannels = EEPROM.read(NUMBER_OF_CHANNELS_EEPROM_ADDRESS);
 if ( numberOfChannels < CHANNELLIST_MIN_NUMBER || numberOfChannels > CHANNELLIST_MAX_NUMBER ) { numberOfChannels = CHANNELLIST_MIN_NUMBER; }
 }
 
-void read_and_set_ntpservername_from_EEPROM()
+void read_and_set_ntpservers_from_EEPROM()
 {
-ntpServerName = "";
+ntpServerName1 = "";
+ntpServerName2 = "";
 uint8_t b;
-for ( int i = NTP_TIME_SERVER_EEPROM_ADDRESS; i < NTP_TIME_SERVER_EEPROM_ADDRESS + 32; ++i) 
- { b = EEPROM.read(i); if ( b > 0 && b < 255 ) { ntpServerName += char(b); } }
-if ( ntpServerName == "" ) { ntpServerName = NTP_SERVER_NAME; }
-configTime("GMT0",ntpServerName.c_str());
+for ( int i = NTP_TIME_SERVER1_EEPROM_ADDRESS; i < NTP_TIME_SERVER1_EEPROM_ADDRESS + 32; ++i) 
+ { b = EEPROM.read(i); if ( b > 0 && b < 255 ) { ntpServerName1 += char(b); } }
+if ( ntpServerName1 == "" ) { ntpServerName1 = NTP_SERVER_NAME; }
+for ( int i = NTP_TIME_SERVER2_EEPROM_ADDRESS; i < NTP_TIME_SERVER2_EEPROM_ADDRESS + 32; ++i) 
+ { b = EEPROM.read(i); if ( b > 0 && b < 255 ) { ntpServerName2 += char(b); } }
+if ( ntpServerName2 == "" ) { ntpServerName2 = NTP_SERVER_NAME; }
+configTime("GMT0",ntpServerName1.c_str(),ntpServerName2.c_str(),NTP_SERVER_NAME);
 ntpGetTime();
 }
 
@@ -1818,7 +2396,7 @@ for ( int i = LOGIN_NAME_EEPROM_ADDRESS; i < LOGIN_NAME_EEPROM_ADDRESS + 10; ++i
  { b = EEPROM.read(i); if ( b > 0 && b < 255 ) { loginName += char(b); } }
 for ( int i = LOGIN_PASS_EEPROM_ADDRESS; i < LOGIN_PASS_EEPROM_ADDRESS + 12; ++i) 
  { b = EEPROM.read(i); if ( b > 0 && b < 255 ) { loginPass += char(b); } }
-if ( loginName == "" || loginPass == "" ) { loginName = "admin"; loginPass = "admin"; }
+if ( loginName == "" || loginPass == "" ) { loginName = DEFAULT_LOGIN_NAME; loginPass = DEFAULT_LOGIN_PASSWORD; }
 httpUpdater.setup(&server, "/firmware", loginName, loginPass);
 }
 
@@ -1928,6 +2506,7 @@ return found;
 void find_next_tasks()  
 {
 if ( !ntpTimeIsSynked ) { return; }  
+if ( ntpcurEpochTime < NTP_MINIMUM_EPOCHTIME ) { return; }
 if ( !thereAreEnabledTasks ) { return; }  
 int chNum, findDOW;
 byte foundTask, DaysCounter;
@@ -1981,6 +2560,7 @@ return found;
 void check_previous_tasks()  
 {
 if ( !ntpTimeIsSynked ) { return; }  
+if ( ntpcurEpochTime < NTP_MINIMUM_EPOCHTIME ) { return; }
 if ( !thereAreEnabledTasks ) { return; }  
 bool needSave = false;  
 int chNum, findDOW;
@@ -2263,6 +2843,7 @@ server.on("/format", []()
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  if ( littleFS_OK ) 
   {
+  RingCounter.clear();
   LittleFS.format();
   ServerSendMessageAndReboot();
   }
@@ -2522,14 +3103,15 @@ server.on("/setntpdaylightsave", []()
  String buf = server.arg(0);
  int param = buf.toInt();
  if ( param == 10 || param == 11 ) 
-  { if ( ntpDaylightSave != param - 10 ) 
-     {
-     ntpDaylightSave = ( param == 10 ? 0 : 1 ); 
-     EEPROM.write(NTP_DAYLIGHTSAVE_EEPROM_ADDRESS, ntpDaylightSave);
-     EEPROM.commit();
-     log_Append(LOG_EVENT_AUTO_DAYLIGHT_SAVING_CHANGED);
-     check_DaylightSave();
-     }
+  { 
+  if ( ntpAutoDaylightSavingEnabled != param - 10 ) 
+   {
+   ntpAutoDaylightSavingEnabled = ( param == 10 ? 0 : 1 ); 
+   EEPROM.write(NTP_DAYLIGHT_SAVING_ENABLED_ADDRESS, ntpAutoDaylightSavingEnabled);
+   EEPROM.commit();
+   log_Append(LOG_EVENT_AUTO_DAYLIGHT_SAVING_CHANGED);
+   check_DaylightSave();
+   }
   }  
  ServerSendMessageAndRefresh();
  });
@@ -2539,28 +3121,43 @@ server.on("/setntpdaylightsavezone", []()
  String buf = server.arg(0);
  int param = buf.toInt();
  if ( param == 10 || param == 11 ) 
-  { if ( ntpDaylightSaveZone != param - 10 ) 
-     {
-     ntpDaylightSaveZone = ( param == 10 ? 0 : 1 ); 
-     EEPROM.write(NTP_DAYLIGHTSAVEZONE_EEPROM_ADDRESS, ntpDaylightSaveZone);
-     EEPROM.commit();
-     log_Append(LOG_EVENT_DAYLIGHT_SAVING_ZONE_CHANGED);
-     check_DaylightSave();
-     }
+  { 
+  if ( ntpDaylightSaveZone != param - 10 ) 
+   {
+   ntpDaylightSaveZone = ( param == 10 ? 0 : 1 ); 
+   EEPROM.write(NTP_DAYLIGHTSAVEZONE_EEPROM_ADDRESS, ntpDaylightSaveZone);
+   EEPROM.commit();
+   log_Append(LOG_EVENT_DAYLIGHT_SAVING_ZONE_CHANGED);
+   check_DaylightSave();
+   }
   }  
  ServerSendMessageAndRefresh();
  });
-server.on("/setntpservername", []() 
+server.on("/setntpservername1", []() 
  {
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  String nname = server.arg(0);
- if ( nname.length() > 0 && nname.length() <= 32 && nname.compareTo(ntpServerName) != 0 )
+ if ( nname.length() > 0 && nname.length() <= 32 && nname.compareTo(ntpServerName1) != 0 )
   {
-  for ( int i = NTP_TIME_SERVER_EEPROM_ADDRESS; i < NTP_TIME_SERVER_EEPROM_ADDRESS + 32; ++i) { EEPROM.write(i, 0); } // fill with 0
-  for ( unsigned int i = 0; i < nname.length(); ++i ) { EEPROM.write(i + NTP_TIME_SERVER_EEPROM_ADDRESS, nname[i]); }
+  for ( int i = NTP_TIME_SERVER1_EEPROM_ADDRESS; i < NTP_TIME_SERVER1_EEPROM_ADDRESS + 32; ++i) { EEPROM.write(i, 0); } // fill with 0
+  for ( unsigned int i = 0; i < nname.length(); ++i ) { EEPROM.write(i + NTP_TIME_SERVER1_EEPROM_ADDRESS, nname[i]); }
   EEPROM.commit();
   log_Append(LOG_EVENT_TIME_SERVER_CHANGED);
-  read_and_set_ntpservername_from_EEPROM();
+  read_and_set_ntpservers_from_EEPROM();
+  ServerSendMessageAndRefresh();
+  }
+ });
+server.on("/setntpservername2", []() 
+ {
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ String nname = server.arg(0);
+ if ( nname.length() > 0 && nname.length() <= 32 && nname.compareTo(ntpServerName2) != 0 )
+  {
+  for ( int i = NTP_TIME_SERVER2_EEPROM_ADDRESS; i < NTP_TIME_SERVER2_EEPROM_ADDRESS + 32; ++i) { EEPROM.write(i, 0); } // fill with 0
+  for ( unsigned int i = 0; i < nname.length(); ++i ) { EEPROM.write(i + NTP_TIME_SERVER2_EEPROM_ADDRESS, nname[i]); }
+  EEPROM.commit();
+  log_Append(LOG_EVENT_TIME_SERVER_CHANGED);
+  read_and_set_ntpservers_from_EEPROM();
   ServerSendMessageAndRefresh();
   }
  });
@@ -2710,6 +3307,9 @@ server.on("/restoresettings", []()
     }   
    f.close();
    EEPROM.commit();
+   RingCounter.clear();
+   RingCounter.init();
+   saveGMTtimeToRingCounter();
    log_Append(LOG_EVENT_FILE_RESTORE);
    ServerSendMessageAndReboot();
    }
@@ -2775,6 +3375,7 @@ server.on("/reset", []()
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  EEPROM.write(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS, 0); 
  EEPROM.commit();
+ RingCounter.clear();
  log_Append(LOG_EVENT_FILE_UPLOAD);
  ServerSendMessageAndReboot();
  }); 
@@ -2823,12 +3424,15 @@ server.on("/setchannellistcollapsed", []()
  }); 
 server.on("/viewlog", []()
  { 
+ if ( ntpcurEpochTime < NTP_MINIMUM_EPOCHTIME ) { return; }
  log_ViewDate = ntpcurEpochTime;
  log_CalcForViewDate();
+ logstat_BegDate = log_CurDate;
+ logstat_EndDate = log_CurDate;
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  ServerSendMessageAndRefresh( 0, LOG_DIR );
  }); 
-server.on("/log",[]() 
+server.on(LOG_DIR,[]() 
  {
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  drawHeader(1);
@@ -2838,6 +3442,8 @@ server.on("/log_first", []()
  { 
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  log_StartRecord = log_NumRecords; 
+ logstat_BegDate = log_CurDate;
+ logstat_EndDate = log_CurDate;
  ServerSendMessageAndRefresh( 0, LOG_DIR );
  });
 server.on("/log_previous", []()
@@ -2845,6 +3451,8 @@ server.on("/log_previous", []()
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  log_StartRecord += log_ViewStep; 
  if ( log_StartRecord > log_NumRecords ) { log_StartRecord = log_NumRecords; }
+ logstat_BegDate = log_CurDate;
+ logstat_EndDate = log_CurDate;
  ServerSendMessageAndRefresh( 0, LOG_DIR );
  });
 server.on("/log_next", []()
@@ -2853,6 +3461,8 @@ server.on("/log_next", []()
  log_StartRecord -= log_ViewStep; 
  if ( log_StartRecord < 1 ) { log_StartRecord = log_ViewStep; }
  if ( log_StartRecord > log_NumRecords ) { log_StartRecord = log_NumRecords; }
+ logstat_BegDate = log_CurDate;
+ logstat_EndDate = log_CurDate;
  ServerSendMessageAndRefresh( 0, LOG_DIR );
  });
 server.on("/log_last", []()
@@ -2860,6 +3470,8 @@ server.on("/log_last", []()
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  log_StartRecord = log_ViewStep; 
  if ( log_StartRecord > log_NumRecords ) { log_StartRecord = log_NumRecords; }
+ logstat_BegDate = log_CurDate;
+ logstat_EndDate = log_CurDate;
  ServerSendMessageAndRefresh( 0, LOG_DIR );
  });
 server.on("/log_incdate", []()
@@ -2867,6 +3479,8 @@ server.on("/log_incdate", []()
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  log_ViewDate += SECS_PER_DAY;
  log_CalcForViewDate();
+ logstat_BegDate = log_CurDate;
+ logstat_EndDate = log_CurDate;
  ServerSendMessageAndRefresh( 0, LOG_DIR );
  });
 server.on("/log_decdate", []()
@@ -2874,6 +3488,8 @@ server.on("/log_decdate", []()
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
  log_ViewDate -= SECS_PER_DAY;
  log_CalcForViewDate();
+ logstat_BegDate = log_CurDate;
+ logstat_EndDate = log_CurDate;
  ServerSendMessageAndRefresh( 0, LOG_DIR );
  });
 server.on("/log_setdate", []()
@@ -2885,11 +3501,24 @@ server.on("/log_setdate", []()
  int d = (buf.substring(8,10)).toInt();
  log_ViewDate = makeTime(y - 1970, m, d, 12, 0, 0);
  log_CalcForViewDate();
+ logstat_BegDate = log_CurDate;
+ logstat_EndDate = log_CurDate;
+ ServerSendMessageAndRefresh( 0, LOG_DIR );
+ });
+server.on("/log_setstatperiod", []()
+ { 
+ if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ String buf = server.arg(0); // YYYY-MM-DD
+ logstat_BegDate = buf.substring(0,4) + buf.substring(5,7) + buf.substring(8,10);
+ buf = server.arg(1); // YYYY-MM-DD
+ logstat_EndDate = buf.substring(0,4) + buf.substring(5,7) + buf.substring(8,10);
  ServerSendMessageAndRefresh( 0, LOG_DIR );
  });
 server.on("/log_return", []()
  { 
  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+ logstat_BegDate = log_CurDate;
+ logstat_EndDate = log_CurDate;
  ServerSendMessageAndRefresh();
  });
 server.on("/setlog_DaysToKeep", []()
@@ -2918,19 +3547,31 @@ server.on("/setlog_ViewStep", []()
   ServerSendMessageAndRefresh( 0, LOG_DIR );
   }
  });
+#ifdef DEBUG 
+ server.on("/log_deletefile", []()
+  { 
+  if ( !server.authenticate(loginName.c_str(), loginPass.c_str()) ) { return server.requestAuthentication(); }
+  char path[32];
+  log_pathFromDate(path, log_ViewDate);
+  if ( LittleFS.exists(path) ) { LittleFS.remove(path); }
+  ServerSendMessageAndReboot();
+  });
+#endif 
 }
 
 void setup()
 {
 #ifdef DEBUG 
  Serial.begin(9600);
+ delay(3000); yield();
  Serial.println();
  Serial.println(F("Versatile timer started"));
- Serial.println(F("Inizializing LittleFS..."));
-#endif 
+ Serial.print(F("LittleFS: "));
+#endif
+delay(500); yield();
 littleFS_OK = LittleFS.begin();
 #ifdef DEBUG 
- if ( littleFS_OK ) { Serial.println(F("done.")); } else { Serial.println(F("FAIL!")); }
+ if ( littleFS_OK ) { Serial.println(F("OK")); } else { Serial.println(F("FAIL")); }
 #endif 
 if ( littleFS_OK ) 
  {
@@ -2940,7 +3581,7 @@ if ( littleFS_OK )
  littleFStotalBytes = fs_info.totalBytes;
  littleFSblockSize = fs_info.blockSize;
  }
-EEPROM.begin(MAX_EEPROM_ADDRESS);
+EEPROM.begin(EEPROMSIZE);
 // Check signature to detect first run on the device and prepare EEPROM
 if ( EEPROM.read(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS) != FIRST_RUN_SIGNATURE ) 
  {
@@ -2954,7 +3595,7 @@ if ( EEPROM.read(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS) != FIRST_RUN_SIGNATURE )
  EEPROM.write(LOG_DAYSTOKEEP_EEPROM_ADDRESS, 3);
  EEPROM.write(LOG_VIEWSTEP_EEPROM_ADDRESS, LOG_VIEWSTEP_DEF);
  EEPROM.write(NTP_TIME_ZONE_EEPROM_ADDRESS, NTP_DEFAULT_TIME_ZONE + 12);
- EEPROM.write(NTP_DAYLIGHTSAVE_EEPROM_ADDRESS, 1);
+ EEPROM.write(NTP_DAYLIGHT_SAVING_ENABLED_ADDRESS, 1);
  EEPROM.write(BUILD_HOUR_EEPROM_ADDRESS, FW_H);
  EEPROM.write(BUILD_MIN_EEPROM_ADDRESS, FW_M);
  EEPROM.write(BUILD_SEC_EEPROM_ADDRESS, FW_S);
@@ -2965,7 +3606,7 @@ if ( EEPROM.read(FIRST_RUN_SIGNATURE_EEPROM_ADDRESS) != FIRST_RUN_SIGNATURE )
  LittleFS.format();
  #ifdef DEBUG 
   Serial.println(F("Rebooting..."));
-  delay(5000);
+  delay(1000);
  #endif 
  ESP.restart();
  }
@@ -2977,7 +3618,7 @@ if ( EEPROM.read(ACCESS_POINT_SIGNATURE_EEPROM_ADDRESS) == ACCESS_POINT_SIGNATUR
  EEPROM.commit();
  }
 read_settings_from_EEPROM();
-read_and_set_ntpservername_from_EEPROM();
+read_and_set_ntpservers_from_EEPROM();
 read_login_pass_from_EEPROM();
 read_AP_name_pass_from_EEPROM();
 read_manually_set_addresses();
@@ -2995,20 +3636,25 @@ if ( !AccessPointMode )
  read_channellist_from_EEPROM_and_switch_channels();
  read_and_sort_tasklist_from_EEPROM();
  yield(); 
- settimeofday_cb(ntpTimeSynked); // optional callback function
- configTime("GMT0",ntpServerName.c_str());
- yield(); 
- log_Append(LOG_EVENT_START);
+ RTCMEMread();
+ struct LastChannelsStates lastchannelsstates = read_lastchannelsstates();
+ log_Append(LOG_EVENT_START, lastchannelsstates.firstpart, lastchannelsstates.lastpart, 0);
  checkFirmwareUpdated();
  getLastResetReason();
- RTCMEMread();
  begin_WiFi_STA();
+ yield(); 
  }
-else { begin_WiFi_AP(); }
+else 
+ { begin_WiFi_AP(); }
+yield(); 
+lastPowerOff = RingCounter.init();
 if ( ipEmpty(wifiManuallySetIP) )     { wifiManuallySetIP = WiFi.localIP(); }
 if ( ipEmpty(wifiManuallySetGW) )     { wifiManuallySetGW = WiFi.gatewayIP(); }
 if ( ipEmpty(wifiManuallySetDNS) )    { wifiManuallySetDNS = WiFi.dnsIP(); }
 if ( ipEmpty(wifiManuallySetSUBNET) ) { wifiManuallySetSUBNET = WiFi.subnetMask(); }
+//
+settimeofday_cb(ntpTimeSynked); // optional callback function
+configTime("GMT0",ntpServerName1.c_str(),ntpServerName2.c_str(),NTP_SERVER_NAME);
 //
 counterOfReboots = EEPROMReadInt(COUNTER_OF_REBOOTS_EEPROM_ADDRESS);
 if ( counterOfReboots < 0 || counterOfReboots > 32766 ) { counterOfReboots = 0; }
@@ -3022,6 +3668,7 @@ ESP.wdtEnable(WDTO_8S);
 everyMinuteTimer = millis();
 everyHalfSecondTimer = millis();
 if ( AccessPointMode ) { AccessPointModeTimer = millis(); }
+RingCounterSaveTimer = millis();
 }
 
 void loop()
@@ -3065,6 +3712,11 @@ if ( millis() - everyHalfSecondTimer > 500UL )
  check_previous_tasks();
  find_next_tasks();
  everyHalfSecondTimer = millis();
+ }
+if ( millis() - RingCounterSaveTimer > RINGCOUNTER_SAVE_PERIOD )
+ {
+ saveGMTtimeToRingCounter();
+ RingCounterSaveTimer = millis();
  }
 log_Append(LOG_POLLING);
 }
