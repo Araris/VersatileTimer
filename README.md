@@ -47,7 +47,7 @@ Configuring a time synchronization server, time zone and daylight saving via the
 
 Selecting a WiFi access point for connection and the mode of obtaining IP addresses (DHCP/fixed) via the web interface.
 
-When booting in working mode, if it is not possible to connect to WiFi within thirty seconds, the device will reboot into access point mode. In the access point mode, if there are no connections to http://192.168.4.1, after 10 minutes the device will reboot into working mode.
+When booting in working mode, if it is not possible to connect to WiFi within 10 minutes, the device will reboot into access point mode. In the access point mode, if there are no connections to http://192.168.4.1, after 10 minutes the device will reboot into working mode.
 
 Downloading firmware via web interface.
 
@@ -116,8 +116,8 @@ It is recommended to add RC filters to the control GPIOs to prevent unwanted swi
 
 Выбор точки доступа WiFi для подключения и режима получения IP адресов (DHCP/фиксированные) через веб-интерфейс.
 
-При загрузке в рабочем режиме, в случае невозможности подключиться к WiFi в течение тридцати секунд, устройство перезагружается в режим точки доступа. 
-В режиме точки доступа, в случае отсутствия подключений к http://192.168.4.1, через 10 минут устройство перезагружается в рабочий режим.
+При загрузке в рабочем режиме, в случае невозможности подключиться к WiFi в течение десяти минут, устройство перезагружается в режим точки доступа. 
+В режиме точки доступа, в случае отсутствия подключений к http://192.168.4.1, через десять минут устройство перезагружается в рабочий режим.
 
 Загрузка прошивки через веб-интерфейс.
 
