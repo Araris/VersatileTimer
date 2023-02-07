@@ -2309,10 +2309,10 @@ content += F("&emsp;PASS: ");
 content += APMODE_PASSWORD;
 content += F("&emsp;URL: http://192.168.4.1");
 content += F("<br><i>");
-content += (Language ? F("При загрузке в рабочем режиме, в случае невозможности подключиться к WiFi в течение тридцати секунд, устройство перезагружается в режим точки доступа. ")
-                     : F("When booting in working mode, if it is not possible to connect to WiFi within thirty seconds, the device will reboot into access point mode. "));
-content += (Language ? F("В режиме точки доступа, в случае отсутствия подключений к http://192.168.4.1, через 10 минут устройство перезагружается в рабочий режим.")
-                     : F("In the access point mode, if there are no connections to http://192.168.4.1, after 10 minutes the device will reboot into working mode."));
+content += (Language ? F("При загрузке в рабочем режиме, в случае невозможности подключиться к WiFi в течение десяти минут, устройство перезагружается в режим точки доступа. ")
+                     : F("When booting in working mode, if it is not possible to connect to WiFi within ten minutes, the device will reboot into access point mode. "));
+content += (Language ? F("В режиме точки доступа, в случае отсутствия подключений к http://192.168.4.1, через десять минут устройство перезагружается в рабочий режим.")
+                     : F("In the access point mode, if there are no connections to http://192.168.4.1, after ten minutes the device will reboot into working mode."));
 content += F("</i></form>");
 content += F("<form action='/restart' form method='get' onsubmit='warn();return false;'><input name='rstrt' type='submit' value='");
 content += (Language ? F("Перезагрузка") : F("Reboot"));
